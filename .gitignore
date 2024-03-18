@@ -33,3 +33,15 @@
 
 build/
 .cache/
+
+einhf/__pycache__
+einhf/CMakeFiles
+einhf/cmake_install.cmake
+einhf/CMakeCache.txt
+einhf/*.so
+einhf/*.log
+einhf/*.out
+einhf/output.dat
+einhf/output.log
+einhf/Makefile
+einhf/timer.dat
