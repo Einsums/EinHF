@@ -32,7 +32,7 @@
 
 """
 __version__ = '0.1'
-__author__  = 'Psi4 Developer'
+__author__  = 'Connor Briggs'
 
 # Load Python modules
 from .pymodule import *

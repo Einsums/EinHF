@@ -32,6 +32,10 @@ cmake_minimum_required(VERSION 3.15 FATAL_ERROR)
 
 project(einhf CXX)
 
-find_package(psi4 1.1 REQUIRED)
+find_package(psi4 REQUIRED)
+find_package(Einsums REQUIRED)
 
 add_psi4_plugin(einhf plugin.cc scf.cc)
+
+target_link_libraries(einhf PUBLIC Einsums::einsums)
+target_include_directories(einhf PUBLIC ${Einsums_INCLUDE_DIRS})

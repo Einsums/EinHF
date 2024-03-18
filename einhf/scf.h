@@ -28,6 +28,8 @@
  * @END LICENSE
  */
 
+#include "einsums.hpp"
+
 #include "psi4/psi4-dec.h"
 #include "psi4/libmints/wavefunction.h"
 #include "psi4/libmints/matrix.h"
@@ -63,21 +65,21 @@ class SCF : public Wavefunction {
     /// The convergence criterion for the energy
     double e_convergence_;
     /// The one electron integrals
-    SharedMatrix H_;
+    einsums::Tensor<double, 2> H_;
     /// The overlap matrix
-    SharedMatrix S_;
+    einsums::Tensor<double, 2> S_;
     /// The inverse square root of the overlap matrix
-    SharedMatrix X_;
+    einsums::Tensor<double, 2> X_;
     /// The Fock Matrix
-    SharedMatrix F_;
+    einsums::Tensor<double, 2> F_;
     /// The transformed Fock matrix
-    SharedMatrix Ft_;
+    einsums::Tensor<double, 2> Ft_;
     /// The MO coefficients
-    SharedMatrix C_;
+    einsums::Tensor<double, 2> C_;
     /// The occupied MO coefficients
-    SharedMatrix Cocc_;
+    einsums::Tensor<double, 2> Cocc_;
     /// The density matrix
-    SharedMatrix D_;
+    einsums::Tensor<double, 2> D_;
     /// The ubiquitous JK object
     std::shared_ptr<JK> jk_;
     /// Computes the electronic part of the SCF energy, and returns it

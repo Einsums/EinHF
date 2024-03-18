@@ -21,241 +21,349 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public License along
- * with Psi4; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Psi4; if not, write to the Free Software Foundation, Inc., 51
+ * Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  * @END LICENSE
  */
 
 #include "scf.h"
 
-#include "psi4/liboptions/liboptions.h"
+#include "einsums.hpp"
+
 #include "psi4/libfock/jk.h"
-#include "psi4/libmints/integral.h"
-#include "psi4/libmints/vector.h"
-#include "psi4/libmints/molecule.h"
-#include "psi4/libmints/mintshelper.h"
 #include "psi4/libmints/basisset.h"
+#include "psi4/libmints/integral.h"
+#include "psi4/libmints/mintshelper.h"
+#include "psi4/libmints/molecule.h"
+#include "psi4/libmints/vector.h"
+#include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
+#include <LinearAlgebra.hpp>
+#include <_Common.hpp>
+#include <_Index.hpp>
 
 namespace psi {
-namespace einhf{
+namespace einhf {
 
-SCF::SCF(SharedWavefunction ref_wfn, Options& options) : Wavefunction(options){
+SCF::SCF(SharedWavefunction ref_wfn, Options &options) : Wavefunction(options) {
+  einsums::initialize();
 
-    // Shallow copy useful objects from the passed in wavefunction
-    shallow_copy(ref_wfn);
-    
-    print_ = options_.get_int("PRINT");
-    maxiter_ = options_.get_int("SCF_MAXITER");
-    e_convergence_ = options_.get_double("E_CONVERGENCE");
-    d_convergence_ = options_.get_double("D_CONVERGENCE");
-    
-    init_integrals();
+  // Shallow copy useful objects from the passed in wavefunction
+  shallow_copy(ref_wfn);
+
+  print_ = options_.get_int("PRINT");
+  maxiter_ = options_.get_int("SCF_MAXITER");
+  e_convergence_ = options_.get_double("E_CONVERGENCE");
+  d_convergence_ = options_.get_double("D_CONVERGENCE");
+
+  init_integrals();
 }
 
-SCF::~SCF() {}
+SCF::~SCF() { einsums::finalize(); }
 
 void SCF::init_integrals() {
-    // The basisset object contains all of the basis information and is formed in the new_wavefunction call
-    // The integral factory oversees the creation of integral objects
-    auto integral = std::make_shared<IntegralFactory>(basisset_, basisset_, basisset_, basisset_);
+  // The basisset object contains all of the basis information and is formed in
+  // the new_wavefunction call The integral factory oversees the creation of
+  // integral objects
+  auto integral = std::make_shared<IntegralFactory>(basisset_, basisset_,
+                                                    basisset_, basisset_);
 
-    // Determine the number of electrons in the system
-    // The molecule object is built into all wavefunctions
-    int charge = molecule_->molecular_charge();
-    int nelec = 0;
-    for (int i = 0; i < molecule_->natom(); ++i) {
-        nelec += (int)molecule_->Z(i);
+  // Determine the number of electrons in the system
+  // The molecule object is built into all wavefunctions
+  int charge = molecule_->molecular_charge();
+  int nelec = 0;
+  for (int i = 0; i < molecule_->natom(); ++i) {
+    nelec += (int)molecule_->Z(i);
+  }
+  nelec -= charge;
+  if (nelec % 2) {
+    throw PSIEXCEPTION("This is only an RHF code, but you gave it an odd "
+                       "number of electrons.  Try again!");
+  }
+  ndocc_ = nelec / 2;
+
+  outfile->Printf("    There are %d doubly occupied orbitals\n", ndocc_);
+  molecule_->print();
+  if (print_ > 1) {
+    basisset_->print_detail();
+    options_.print();
+  }
+
+  nso_ = basisset_->nbf();
+
+  // Nuclear repulsion without a field
+  e_nuc_ = molecule_->nuclear_repulsion_energy({0, 0, 0});
+  outfile->Printf("\n    Nuclear repulsion energy: %16.8f\n\n", e_nuc_);
+
+  // Make a MintsHelper object to help
+  auto mints = std::make_shared<MintsHelper>(basisset_);
+
+  // These don't need to be declared, because they belong to the class
+  auto S_mat = mints->so_overlap();
+
+  // Core Hamiltonian is Kinetic + Potential
+  auto H_mat = mints->so_kinetic();
+  H_mat->add(mints->so_potential());
+
+  S_ = einsums::Tensor<double, 2>("Overlap Integrals", nso_, nso_);
+  H_ = einsums::Tensor<double, 2>("Hamiltonian", nso_, nso_);
+  S_.set_name("Overlap Integrals");
+  H_.set_name("Hamiltonian");
+
+#pragma omp parallel for
+  for(int i = 0; i < nso_; i++) {
+    for(int j = 0; j < nso_; j++) {
+        S_(i, j) = S_mat->get(i, j);
+        H_(i, j) = H_mat->get(i, j);
     }
-    nelec -= charge;
-    if (nelec % 2) {
-        throw PSIEXCEPTION("This is only an RHF code, but you gave it an odd number of electrons.  Try again!");
-    }
-    ndocc_ = nelec / 2;
+  }
 
-    outfile->Printf("    There are %d doubly occupied orbitals\n", ndocc_);
-    molecule_->print();
-    if (print_ > 1) {
-        basisset_->print_detail();
-        options_.print();
-    }
+  if (print_ > 3) {
+    fprintln(*outfile->stream(), S_);
+    fprintln(*outfile->stream(), H_);
+    outfile->stream()->flush();
+  }
 
-    nso_ = basisset_->nbf();
+  outfile->Printf("    Forming JK object\n\n");
+  // Construct a JK object that compute J and K SCF matrices very efficiently
+  jk_ = JK::build_JK(basisset_, std::shared_ptr<BasisSet>(), options_);
 
-    // Nuclear repulsion without a field
-    e_nuc_ = molecule_->nuclear_repulsion_energy({0, 0, 0});
-    outfile->Printf("\n    Nuclear repulsion energy: %16.8f\n\n", e_nuc_);
-
-    // Make a MintsHelper object to help
-    auto mints = std::make_shared<MintsHelper>(basisset_);
-
-    // These don't need to be declared, because they belong to the class
-    S_ = mints->so_overlap();
-
-    // Core Hamiltonian is Kinetic + Potential
-    H_ = mints->so_kinetic();
-    H_->add(mints->so_potential());
-
-    if (print_ > 3) {
-        S_->print();
-        H_->print();
-    }
-
-    outfile->Printf("    Forming JK object\n\n");
-    // Construct a JK object that compute J and K SCF matrices very efficiently
-    jk_ = JK::build_JK(basisset_, std::shared_ptr<BasisSet>(), options_);
-
-    // This is a very heavy compute object, lets give it 80% of our total memory
-    jk_->set_memory(Process::environment.get_memory() * 0.8);
-    jk_->initialize();
-    jk_->print_header();
+  // This is a very heavy compute object, lets give it 80% of our total memory
+  jk_->set_memory(Process::environment.get_memory() * 0.8);
+  jk_->initialize();
+  jk_->print_header();
 }
 
 double SCF::compute_electronic_energy() {
-    // Compute the electronic energy: (H + F)_pq * D_pq -> energy
-    SharedMatrix HplusF = H_->clone();
-    HplusF->add(F_);
-    return D_->vector_dot(HplusF);
+  // Compute the electronic energy: (H + F)_pq * D_pq -> energy
+
+  einsums::Tensor<double, 0> e_tens;
+  einsums::Tensor<double, 2> temp =
+      einsums::Tensor<double, 2>("temp", nso_, nso_);
+
+  temp = H_;
+  temp += F_;
+
+  einsums::tensor_algebra::einsum(
+      0.0, einsums::tensor_algebra::Indices{}, &e_tens, 1.0,
+      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+                                       einsums::tensor_algebra::index::j},
+      D_,
+      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+                                       einsums::tensor_algebra::index::j},
+      temp);
+
+  return (double)e_tens;
 }
 
-void SCF::update_Cocc() {
-    // Copy over the occupied block of the orbital matrix
-    for (int p = 0; p < nso_; ++p) {
-        for (int i = 0; i < ndocc_; ++i) {
-            Cocc_->set(p, i, C_->get(p, i));
-        }
-    }
-}
+void SCF::update_Cocc() { Cocc_ = C_(einsums::All, einsums::Range{0, ndocc_}); }
 
 double SCF::compute_energy() {
-    // Set Wavefunction matrices
-    X_ = std::make_shared<Matrix>("S^-1/2", nso_, nso_);
-    F_ = std::make_shared<Matrix>("Fock matrix", nso_, nso_);
-    Ft_ = std::make_shared<Matrix>("Transformed Fock matrix", nso_, nso_);
-    C_ = std::make_shared<Matrix>("MO Coefficients", nso_, nso_);
-    Cocc_ = std::make_shared<Matrix>("Occupied MO Coefficients", nso_, ndocc_);
-    D_ = std::make_shared<Matrix>("The Density Matrix", nso_, nso_);
+  // Set Wavefunction matrices
+  X_ = einsums::Tensor<double, 2>("S^-1/2", nso_, nso_);
+  F_ = einsums::Tensor<double, 2>("Fock matrix", nso_, nso_);
+  Ft_ = einsums::Tensor<double, 2>("Transformed Fock matrix", nso_, nso_);
+  C_ = einsums::Tensor<double, 2>("MO Coefficients", nso_, nso_);
+  Cocc_ = einsums::Tensor<double, 2>("Occupied MO Coefficients", nso_, ndocc_);
+  D_ = einsums::Tensor<double, 2>("The Density Matrix", nso_, nso_);
 
-    // Allocate a few temporary matrices
-    auto Temp1 = std::make_shared<Matrix>("Temporary Array 1", nso_, nso_);
-    auto Temp2 = std::make_shared<Matrix>("Temporary Array 2", nso_, nso_);
-    auto FDS = std::make_shared<Matrix>("FDS", nso_, nso_);
-    auto SDF = std::make_shared<Matrix>("SDF", nso_, nso_);
-    auto Evecs = std::make_shared<Matrix>("Eigenvectors", nso_, nso_);
-    auto Evals = std::make_shared<Vector>("Eigenvalues", nso_);
+  X_.set_name("S^-1/2");
+  F_.set_name("Fock Matrix");
+  Ft_.set_name("Transformed Fock Matrix");
+  C_.set_name("MO Coefficients");
+  Cocc_.set_name("Occupied MO Coefficients");
+  D_.set_name("Density Matrix");
 
-    // Form the X_ matrix (S^-1/2)
-    X_->copy(S_);
-    X_->power(-0.5, 1.e-14);
+  // Allocate a few temporary matrices
+  auto Temp1 = einsums::Tensor<double, 2>("Temporary Array 1", nso_, nso_);
+  auto Temp2 = einsums::Tensor<double, 2>("Temporary Array 2", nso_, nso_);
+  auto FDS = einsums::Tensor<double, 2>("FDS", nso_, nso_);
+  auto SDF = einsums::Tensor<double, 2>("SDF", nso_, nso_);
+  auto Evecs = einsums::Tensor<double, 2>("Eigenvectors", nso_, nso_);
+  auto Evals = einsums::Tensor<double, 1>("Eigenvalues", nso_);
 
-    F_->copy(H_);
-    Ft_->transform(F_, X_);
-    Ft_->diagonalize(Evecs, Evals, ascending);
+  // Form the X_ matrix (S^-1/2)
+  X_ = einsums::linear_algebra::pow(S_, -0.5);
 
-    C_->gemm(false, false, 1.0, X_, Evecs, 0.0);
-    update_Cocc();
-    D_->gemm(false, true, 1.0, Cocc_, Cocc_, 0.0);
+  F_ = H_;
 
+  einsums::linear_algebra::gemm<false, false>(1.0, F_, X_, 0.0, &Temp1);
+  einsums::linear_algebra::gemm<true, false>(1.0, X_, Temp1, 0.0, &Ft_);
+
+  Evecs = Ft_;
+  einsums::linear_algebra::syev(&Evecs, &Evals);
+
+  einsums::linear_algebra::gemm<false, true>(1.0, X_, Evecs, 0.0, &C_);
+
+  Cocc_ = C_(einsums::All, einsums::Range{0, ndocc_});
+
+  einsums::tensor_algebra::einsum(
+      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+                                       einsums::tensor_algebra::index::j},
+      &D_,
+      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+                                       einsums::tensor_algebra::index::m},
+      Cocc_,
+      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
+                                       einsums::tensor_algebra::index::m},
+      Cocc_);
+
+  if (print_ > 1) {
+    outfile->Printf(
+        "MO Coefficients and density from Core Hamiltonian guess:\n");
+    fprintln(*outfile->stream(), X_);
+    fprintln(*outfile->stream(), C_);
+    fprintln(*outfile->stream(), D_);
+    fprintln(*outfile->stream(), Evals);
+    fprintln(*outfile->stream(), Cocc_);
+  }
+
+  int iter = 1;
+  bool converged = false;
+  double e_old;
+  double e_new = e_nuc_ + compute_electronic_energy();
+
+  outfile->Printf("    Energy from core Hamiltonian guess: %20.16f\n\n", e_new);
+
+  outfile->Printf(
+      "    *=======================================================*\n");
+  outfile->Printf(
+      "    * Iter       Energy            delta E    ||gradient||  *\n");
+  outfile->Printf(
+      "    *-------------------------------------------------------*\n");
+
+  while (!converged && iter < maxiter_) {
+    e_old = e_new;
+
+    // Add the core Hamiltonian term to the Fock operator
+    F_ = H_;
+
+    // The JK object handles all of the two electron integrals
+    // To enhance efficiency it does use the density, but the orbitals
+    // themselves D_uv = C_ui C_vj J_uv = I_uvrs D_rs K_uv = I_urvs D_rs
+
+    // Here we clear the old Cocc and push_back our new one
+    std::vector<SharedMatrix> &Cl = jk_->C_left();
+    Cl.clear();
+
+    SharedMatrix CTemp = std::make_shared<Matrix>(nso_, ndocc_);
+
+    for (int i = 0; i < nso_; i++) {
+      for (int j = 0; j < ndocc_; j++) {
+        (*CTemp.get())(i, j) = Cocc_(i, j);
+      }
+    }
+
+    Cl.push_back(CTemp);
+    jk_->compute();
+
+    // Obtain the new J and K matrices
+    const std::vector<SharedMatrix> &J_mat = jk_->J();
+    const std::vector<SharedMatrix> &K_mat = jk_->K();
+
+    // Proceede as normal
+    auto J = einsums::Tensor<double, 2>("J matrix", nso_, nso_);
+    auto K = einsums::Tensor<double, 2>("K matrix", nso_, nso_);
+
+    auto J_view = J(einsums::All, einsums::All);
+    auto K_view = K(einsums::All, einsums::All);
+
+    J_view = J_mat[0]->get_pointer();
+    K_view = K_mat[0]->get_pointer();
+
+    J = J_view;
+    K = K_view;
+
+    J *= 2.0;
+
+    F_ += J;
+    F_ -= K;
+
+    // Compute the energy
+    e_new = e_nuc_ + compute_electronic_energy();
+    double dE = e_new - e_old;
+
+    // Compute the orbital gradient, FDS-SDF
+    einsums::linear_algebra::gemm<false, false>(1.0, D_, S_, 0.0, &Temp1);
+    einsums::linear_algebra::gemm<false, false>(1.0, F_, Temp1, 0.0, &FDS);
+    einsums::linear_algebra::gemm<false, false>(1.0, D_, F_, 0.0, &Temp1);
+    einsums::linear_algebra::gemm<false, false>(1.0, S_, Temp1, 0.0, &SDF);
+
+    Temp1 = FDS;
+    Temp1 -= SDF;
+
+    // Density RMS
+    einsums::Tensor<double, 0> dRMS_tens;
+
+    einsums::tensor_algebra::einsum(
+        0.0, einsums::tensor_algebra::Indices{}, &dRMS_tens,
+        1.0 / (nso_ * nso_),
+        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+                                         einsums::tensor_algebra::index::j},
+        Temp1,
+        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+                                         einsums::tensor_algebra::index::j},
+        Temp1);
+
+    double dRMS = std::sqrt(dRMS_tens);
+
+    // Optional printing
     if (print_ > 1) {
-        outfile->Printf("MO Coefficients and density from Core Hamiltonian guess:\n");
-        C_->print();
-        D_->print();
+      fprintln(*outfile->stream(), Ft_);
+      fprintln(*outfile->stream(), Evecs);
+      fprintln(*outfile->stream(), Evals);
+      fprintln(*outfile->stream(), C_);
+      fprintln(*outfile->stream(), D_);
+      fprintln(*outfile->stream(), FDS);
+      fprintln(*outfile->stream(), SDF);
+      Temp1.set_name("Orbital Gradient");
+      fprintln(*outfile->stream(), Temp1);
     }
 
-    int iter = 1;
-    bool converged = false;
-    double e_old;
-    double e_new = e_nuc_ + compute_electronic_energy();
+    converged = (fabs(dE) < e_convergence_) && (dRMS < d_convergence_);
 
-    outfile->Printf("    Energy from core Hamiltonian guess: %20.16f\n\n", e_new);
+    outfile->Printf("    * %3d %20.14f    %9.2e    %9.2e    *\n", iter, e_new,
+                    dE, dRMS);
 
-    outfile->Printf("    *=======================================================*\n");
-    outfile->Printf("    * Iter       Energy            delta E    ||gradient||  *\n");
-    outfile->Printf("    *-------------------------------------------------------*\n");
+    einsums::linear_algebra::gemm<false, false>(1.0, F_, X_, 0.0, &Temp1);
+    einsums::linear_algebra::gemm<true, false>(1.0, X_, Temp1, 0.0, &Ft_);
 
-    while (!converged && iter < maxiter_) {
-        e_old = e_new;
+    Evecs = Ft_;
+    einsums::linear_algebra::syev(&Evecs, &Evals);
 
-        // Add the core Hamiltonian term to the Fock operator
-        F_->copy(H_);
+    einsums::linear_algebra::gemm<false, true>(1.0, X_, Evecs, 0.0, &C_);
 
-        // The JK object handles all of the two electron integrals
-        // To enhance efficiency it does use the density, but the orbitals themselves
-        // D_uv = C_ui C_vj
-        // J_uv = I_uvrs D_rs
-        // K_uv = I_urvs D_rs
+    Cocc_ = C_(einsums::All, einsums::Range{0, ndocc_});
 
-        // Here we clear the old Cocc and push_back our new one
-        std::vector<SharedMatrix>& Cl = jk_->C_left();
-        Cl.clear();
-        Cl.push_back(Cocc_);
-        jk_->compute();
+    einsums::tensor_algebra::einsum(
+        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+                                         einsums::tensor_algebra::index::j},
+        &D_,
+        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+                                         einsums::tensor_algebra::index::m},
+        Cocc_,
+        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
+                                         einsums::tensor_algebra::index::m},
+        Cocc_);
+    iter++;
+  }
+  outfile->Printf(
+      "    *=======================================================*\n");
 
-        // Obtain the new J and K matrices
-        const std::vector<SharedMatrix>& J = jk_->J();
-        const std::vector<SharedMatrix>& K = jk_->K();
+  if (!converged)
+    throw PSIEXCEPTION("The SCF iterations did not converge.");
 
-        // Proceede as normal
-        J[0]->scale(2.0);
-        F_->add(J[0]);
-        F_->subtract(K[0]);
+  Evals.set_name("Orbital Energies");
+  outfile->Printf("Occupied:\n");
+  fprintln(*outfile->stream(), Evals(einsums::Range{0, ndocc_}));
+  outfile->Printf("Unoccupied:\n");
+  fprintln(*outfile->stream(), Evals(einsums::Range{ndocc_, nso_}));
+  energy_ = e_new;
 
-        // Compute the energy
-        e_new = e_nuc_ + compute_electronic_energy();
-        double dE = e_new - e_old;
-
-        // Compute the orbital gradient, FDS-SDF
-        Temp1->gemm(false, false, 1.0, D_, S_, 0.0);
-        FDS->gemm(false, false, 1.0, F_, Temp1, 0.0);
-        Temp1->gemm(false, false, 1.0, D_, F_, 0.0);
-        SDF->gemm(false, false, 1.0, S_, Temp1, 0.0);
-        Temp1->copy(FDS);
-        Temp1->subtract(SDF);
-
-        // Density RMS
-        double dRMS = Temp1->rms();
-
-        // Optional printing
-        if (print_ > 1) {
-            Ft_->print();
-            Evecs->print();
-            Evals->print();
-            C_->print();
-            D_->print();
-            FDS->print();
-            SDF->print();
-            Temp1->set_name("Orbital gradient");
-            Temp1->print();
-        }
-
-        converged = (fabs(dE) < e_convergence_) && (dRMS < d_convergence_);
-
-        outfile->Printf("    * %3d %20.14f    %9.2e    %9.2e    *\n", iter, e_new, dE, dRMS);
-
-        // Transform the Fock operator and diagonalize it
-        Ft_->transform(F_, X_);
-        Ft_->diagonalize(Evecs, Evals, ascending);
-
-        // Form the orbitals from the eigenvectors of the transformed Fock matrix
-        C_->gemm(false, false, 1.0, X_, Evecs, 0.0);
-
-        // Update our occupied orbitals
-        update_Cocc();
-        D_->gemm(false, true, 1.0, Cocc_, Cocc_, 0.0);
-        iter++;
-    }
-    outfile->Printf("    *=======================================================*\n");
-
-    if (!converged) throw PSIEXCEPTION("The SCF iterations did not converge.");
-
-    Evals->set_name("Orbital Energies");
-    Evals->print();
-    energy_ = e_new;
-
-    return e_new;
+  return e_new;
 }
-}
-}  // End namespaces
+} // namespace einhf
+} // namespace psi

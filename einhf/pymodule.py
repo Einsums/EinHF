@@ -43,7 +43,7 @@ def run_einhf(name, **kwargs):
     kwargs = p4util.kwargs_lower(kwargs)
 
     # Your plugin's psi4 run sequence goes here
-    psi4.core.set_local_option('EINHF', 'PRINT', 1)
+    #psi4.core.set_local_option('EINHF', 'PRINT', 1)
 
     # Build a new blank wavefunction to pass into scf
     einhf_molecule = kwargs.get('molecule', psi4.core.get_active_molecule())
