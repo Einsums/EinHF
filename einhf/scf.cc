@@ -48,8 +48,12 @@
 namespace psi {
 namespace einhf {
 
-SCF::SCF(SharedWavefunction ref_wfn, Options &options) : Wavefunction(options) {
-  einsums::initialize();
+SCF::SCF(SharedWavefunction ref_wfn, Options &options)
+  : Wavefunction(options),
+    H_("Hamiltonian", 0, 0), S_("Overlap", 0, 0), X_("S^-1/2", 0, 0), 
+    F_("Fock Matrix", 0, 0), Ft_("Transformed Fock Matrix", 0, 0),
+    C_("MO Coefficients", 0, 0), Cocc_("Occupied MO Coefficients", 0, 0),
+    D_("Density Matrix", 0, 0) {
 
   // Shallow copy useful objects from the passed in wavefunction
   shallow_copy(ref_wfn);
@@ -62,7 +66,7 @@ SCF::SCF(SharedWavefunction ref_wfn, Options &options) : Wavefunction(options) {
   init_integrals();
 }
 
-SCF::~SCF() { einsums::finalize(); }
+SCF::~SCF() { }
 
 void SCF::init_integrals() {
   // The basisset object contains all of the basis information and is formed in
@@ -108,16 +112,14 @@ void SCF::init_integrals() {
   auto H_mat = mints->so_kinetic();
   H_mat->add(mints->so_potential());
 
-  S_ = einsums::Tensor<double, 2>("Overlap Integrals", nso_, nso_);
-  H_ = einsums::Tensor<double, 2>("Hamiltonian", nso_, nso_);
-  S_.set_name("Overlap Integrals");
-  H_.set_name("Hamiltonian");
+  S_.resize(nso_, nso_);
+  H_.resize(nso_, nso_);
 
 #pragma omp parallel for
-  for(int i = 0; i < nso_; i++) {
-    for(int j = 0; j < nso_; j++) {
-        S_(i, j) = S_mat->get(i, j);
-        H_(i, j) = H_mat->get(i, j);
+  for (int i = 0; i < nso_; i++) {
+    for (int j = 0; j < nso_; j++) {
+      S_(i, j) = S_mat->get(i, j);
+      H_(i, j) = H_mat->get(i, j);
     }
   }
 
@@ -136,7 +138,7 @@ void SCF::init_integrals() {
   jk_->initialize();
   jk_->print_header();
 }
-
+  
 double SCF::compute_electronic_energy() {
   // Compute the electronic energy: (H + F)_pq * D_pq -> energy
 
@@ -160,22 +162,16 @@ double SCF::compute_electronic_energy() {
 }
 
 void SCF::update_Cocc() { Cocc_ = C_(einsums::All, einsums::Range{0, ndocc_}); }
-
+    
+  
 double SCF::compute_energy() {
   // Set Wavefunction matrices
-  X_ = einsums::Tensor<double, 2>("S^-1/2", nso_, nso_);
-  F_ = einsums::Tensor<double, 2>("Fock matrix", nso_, nso_);
-  Ft_ = einsums::Tensor<double, 2>("Transformed Fock matrix", nso_, nso_);
-  C_ = einsums::Tensor<double, 2>("MO Coefficients", nso_, nso_);
-  Cocc_ = einsums::Tensor<double, 2>("Occupied MO Coefficients", nso_, ndocc_);
-  D_ = einsums::Tensor<double, 2>("The Density Matrix", nso_, nso_);
-
-  X_.set_name("S^-1/2");
-  F_.set_name("Fock Matrix");
-  Ft_.set_name("Transformed Fock Matrix");
-  C_.set_name("MO Coefficients");
-  Cocc_.set_name("Occupied MO Coefficients");
-  D_.set_name("Density Matrix");
+  X_.resize(nso_, nso_);
+  F_.resize(nso_, nso_);
+  Ft_.resize(nso_, nso_);
+  C_.resize(nso_, nso_);
+  Cocc_.resize(nso_, ndocc_);
+  D_.resize(nso_, nso_);
 
   // Allocate a few temporary matrices
   auto Temp1 = einsums::Tensor<double, 2>("Temporary Array 1", nso_, nso_);
