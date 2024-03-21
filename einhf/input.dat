@@ -24,6 +24,6 @@ set DIIS FALSE
 set SCF_INITIAL_ACCELERATOR NONE
 set PRINT 1
 
-energy('hf')
+energy('einhf')
 
 einhf.exampleFN()
