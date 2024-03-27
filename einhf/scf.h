@@ -29,6 +29,7 @@
  */
 
 #include "einsums.hpp"
+#include <vector>
 
 #include "psi4/psi4-dec.h"
 #include "psi4/libmints/wavefunction.h"
@@ -54,6 +55,14 @@ class SCF : public Wavefunction {
     int print_;
     /// The number of doubly occupied orbitals
     int ndocc_;
+
+    /// The number of irreps.
+    int nirrep_;
+    /// The occupation per irrep.
+    std::vector<int> occ_per_irrep_;
+    /// The sizes of each irrep.
+    std::vector<int> irrep_sizes_;
+
     /// The number of symmetrized spin orbitals
     int nso_;
     /// The maximum number of iterations
@@ -65,21 +74,21 @@ class SCF : public Wavefunction {
     /// The convergence criterion for the energy
     double e_convergence_;
     /// The one electron integrals
-    einsums::Tensor<double, 2> H_;
+    einsums::BlockTensor<double, 2> H_;
     /// The overlap matrix
-    einsums::Tensor<double, 2> S_;
+    einsums::BlockTensor<double, 2> S_;
     /// The inverse square root of the overlap matrix
-    einsums::Tensor<double, 2> X_;
+    einsums::BlockTensor<double, 2> X_;
     /// The Fock Matrix
-    einsums::Tensor<double, 2> F_;
+    einsums::BlockTensor<double, 2> F_;
     /// The transformed Fock matrix
-    einsums::Tensor<double, 2> Ft_;
+    einsums::BlockTensor<double, 2> Ft_;
     /// The MO coefficients
-    einsums::Tensor<double, 2> C_;
+    einsums::BlockTensor<double, 2> C_;
     /// The occupied MO coefficients
-    einsums::Tensor<double, 2> Cocc_;
+    einsums::BlockTensor<double, 2> Cocc_;
     /// The density matrix
-    einsums::Tensor<double, 2> D_;
+    einsums::BlockTensor<double, 2> D_;
     /// The ubiquitous JK object
     std::shared_ptr<JK> jk_;
     /// Computes the electronic part of the SCF energy, and returns it

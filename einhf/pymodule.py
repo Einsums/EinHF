@@ -48,12 +48,6 @@ def run_einhf(name, **kwargs):
     # Build a new blank wavefunction to pass into scf
     einhf_molecule = kwargs.get('molecule', psi4.core.get_active_molecule())
 
-    if einhf_molecule.schoenflies_symbol() != 'c1':
-        psi4.core.print_out("This SCF code must be run in c1 symmetry, switching\n")
-        einhf_molecule = einhf_molecule.clone()
-        einhf_molecule.reset_point_group('c1')
-        einhf_molecule.update_geometry()
-
     new_wfn = psi4.core.Wavefunction.build(einhf_molecule, psi4.core.get_global_option('BASIS'))
 
     einhf_wfn = psi4.core.plugin('einhf.so', new_wfn)
