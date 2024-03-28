@@ -30,6 +30,7 @@
 
 #include "einsums.hpp"
 #include <vector>
+#include <deque>
 
 #include "psi4/psi4-dec.h"
 #include "psi4/libmints/wavefunction.h"
@@ -42,14 +43,18 @@ namespace psi{
 
 namespace einhf{
 
-class SCF : public Wavefunction {
+class EinsumsSCF : public Wavefunction {
   public:
     /// The constuctor
-    SCF(SharedWavefunction ref_wfn, Options &options);
+    EinsumsSCF(SharedWavefunction ref_wfn, Options &options);
     /// The destuctor
-    ~SCF();
+    ~EinsumsSCF();
     /// Computes the SCF energy, and returns it
     double compute_energy();
+
+    void compute_diis_coefs(const std::deque<einsums::BlockTensor<double, 2>> &errors, std::vector<double> *out) const;
+
+    void compute_diis_fock(const std::vector<double> &coefs, const std::deque<einsums::BlockTensor<double, 2>> &focks, einsums::BlockTensor<double, 2> *out) const;
   protected:
     /// The amount of information to print to the output file
     int print_;
@@ -65,6 +70,8 @@ class SCF : public Wavefunction {
     int nso_;
     /// The maximum number of iterations
     int maxiter_;
+    /// The number of DIIS iterations to hold.
+    int diis_max_iters_;
     /// The nuclear repulsion energy
     double e_nuc_;
     /// The convergence criterion for the density

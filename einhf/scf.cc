@@ -49,7 +49,8 @@
 namespace psi {
 namespace einhf {
 
-SCF::SCF(SharedWavefunction ref_wfn, Options &options) : Wavefunction(options) {
+EinsumsSCF::EinsumsSCF(SharedWavefunction ref_wfn, Options &options)
+    : Wavefunction(options) {
 
   // Shallow copy useful objects from the passed in wavefunction
   shallow_copy(ref_wfn);
@@ -61,6 +62,12 @@ SCF::SCF(SharedWavefunction ref_wfn, Options &options) : Wavefunction(options) {
   maxiter_ = options_.get_int("SCF_MAXITER");
   e_convergence_ = options_.get_double("E_CONVERGENCE");
   d_convergence_ = options_.get_double("D_CONVERGENCE");
+  if (options_.get_bool("DIIS")) {
+    diis_max_iters_ = options_.get_int("DIIS_MAX_VECS");
+  } else {
+    diis_max_iters_ = 0;
+    outfile->Printf("Turning DIIS off.\n");
+  }
 
   init_integrals();
 
@@ -109,9 +116,9 @@ SCF::SCF(SharedWavefunction ref_wfn, Options &options) : Wavefunction(options) {
   }
 }
 
-SCF::~SCF() {}
+EinsumsSCF::~EinsumsSCF() {}
 
-void SCF::init_integrals() {
+void EinsumsSCF::init_integrals() {
   // The basisset object contains all of the basis information and is formed in
   // the new_wavefunction call The integral factory oversees the creation of
   // integral objects
@@ -155,10 +162,6 @@ void SCF::init_integrals() {
   auto H_mat = mints->so_kinetic();
 
   this->nirrep_ = (int)S_mat->nirrep();
-
-  if (this->nirrep_ == 1) {
-    outfile->Printf("Hi");
-  }
 
   occ_per_irrep_.resize(nirrep_);
 
@@ -210,7 +213,7 @@ void SCF::init_integrals() {
   jk_->print_header();
 }
 
-double SCF::compute_electronic_energy() {
+double EinsumsSCF::compute_electronic_energy() {
   // Compute the electronic energy: (H + F)_pq * D_pq -> energy
 
   einsums::Tensor<double, 0> e_tens;
@@ -231,7 +234,7 @@ double SCF::compute_electronic_energy() {
   return (double)e_tens;
 }
 
-void SCF::update_Cocc(const einsums::Tensor<double, 1> &energies) {
+void EinsumsSCF::update_Cocc(const einsums::Tensor<double, 1> &energies) {
   // Update occupation.
 
   for (int i = 0; i < nirrep_; i++) {
@@ -260,21 +263,75 @@ void SCF::update_Cocc(const einsums::Tensor<double, 1> &energies) {
 
   Cocc_.zero();
 
+#pragma omp taskgroup
+  {
 #pragma omp taskloop
-  for (int i = 0; i < nirrep_; i++) {
+    for (int i = 0; i < nirrep_; i++) {
 #pragma omp parallel for
-    for (int j = 0; j < Cocc_[i].dim(0); j++) {
+      for (int j = 0; j < Cocc_[i].dim(0); j++) {
 #pragma omp parallel for
-      for (int k = 0; k < occ_per_irrep_[i]; k++) {
-        Cocc_[i](j, k) = C_[i](j, k);
+        for (int k = 0; k < occ_per_irrep_[i]; k++) {
+          Cocc_[i](j, k) = C_[i](j, k);
+        }
       }
     }
   }
-#pragma omp taskgroup
-  ;
 }
 
-double SCF::compute_energy() {
+void EinsumsSCF::compute_diis_coefs(
+    const std::deque<einsums::BlockTensor<double, 2>> &errors,
+    std::vector<double> *out) const {
+  einsums::Tensor<double, 2> B_mat = einsums::Tensor<double, 2>(
+      "DIIS error matrix", errors.size() + 1, errors.size() + 1);
+
+  B_mat.zero();
+  B_mat(einsums::Range{errors.size(), errors.size() + 1}, einsums::AllT{}) =
+      1.0;
+  B_mat(einsums::AllT{}, einsums::Range{errors.size(), errors.size() + 1}) =
+      1.0;
+
+#pragma omp parallel for
+  for (int i = 0; i < errors.size(); i++) {
+    for (int j = 0; j <= i; j++) {
+      B_mat(i, j) = einsums::linear_algebra::dot(errors[i], errors[j]);
+      B_mat(j, i) = B_mat(i, j);
+    }
+  }
+
+  einsums::Tensor<double, 2> res_mat =
+      einsums::Tensor<double, 2>("DIIS result matrix", 1, errors.size() + 1);
+
+  res_mat.zero();
+  res_mat(0, errors.size()) = 1.0;
+
+  einsums::linear_algebra::gesv(&B_mat, &res_mat);
+
+  out->resize(errors.size());
+
+  for (int i = 0; i < errors.size(); i++) {
+    out->at(i) = res_mat(0, i);
+  }
+}
+
+void EinsumsSCF::compute_diis_fock(
+    const std::vector<double> &coefs,
+    const std::deque<einsums::BlockTensor<double, 2>> &focks,
+    einsums::BlockTensor<double, 2> *out) const {
+
+  out->zero();
+
+#pragma omp parallel for
+  for (int i = 0; i < coefs.size(); i++) {
+    einsums::linear_algebra::axpy(coefs[i], focks[i], out);
+  }
+}
+
+double EinsumsSCF::compute_energy() {
+  if(diis_max_iters_ != 0) {
+    outfile->Printf("Performing DIIS with %d vectors.\n", diis_max_iters_);
+  } else {
+    outfile->Printf("Turning DIIS off.\n");
+  }
 
   // Allocate a few temporary matrices
   auto Temp1 =
@@ -286,6 +343,9 @@ double SCF::compute_energy() {
   auto Evecs = einsums::BlockTensor<double, 2>("Eigenvectors", irrep_sizes_);
   auto Evals = einsums::Tensor<double, 1>("Eigenvalues", nso_);
 
+  std::deque<einsums::BlockTensor<double, 2>> errors(0), focks(0);
+  std::vector<double> coefs(0);
+
   // Form the X_ matrix (S^-1/2)
   X_ = einsums::linear_algebra::pow(S_, -0.5);
 
@@ -294,20 +354,7 @@ double SCF::compute_energy() {
   einsums::linear_algebra::gemm<false, false>(1.0, F_, X_, 0.0, &Temp1);
   einsums::linear_algebra::gemm<true, false>(1.0, X_, Temp1, 0.0, &Ft_);
 
-  for (int i = 0; i < Ft_.num_blocks(); i++) {
-    outfile->Printf("Range %d: %d - %d\n", i, Ft_.block_range(i)[0],
-                    Ft_.block_range(i)[1]);
-  }
-
   Evecs = Ft_;
-
-  for (int i = 0; i < Evecs.num_blocks(); i++) {
-    outfile->Printf("Range %d: %d - %d\n", i, Evecs.block_range(i)[0],
-                    Evecs.block_range(i)[1]);
-  }
-
-  fprintln(*outfile->stream(), Evecs);
-  outfile->stream()->flush();
 
   Evals.zero();
   einsums::linear_algebra::syev(&Evecs, &Evals);
@@ -327,7 +374,7 @@ double SCF::compute_energy() {
                                        einsums::tensor_algebra::index::m},
       Cocc_);
 
-  if (print_ > 1) {
+  if (print_ > 3) {
     outfile->Printf(
         "MO Coefficients and density from Core Hamiltonian guess:\n");
     fprintln(*outfile->stream(), X_);
@@ -345,11 +392,11 @@ double SCF::compute_energy() {
   outfile->Printf("    Energy from core Hamiltonian guess: %20.16f\n\n", e_new);
 
   outfile->Printf(
-      "    *=======================================================*\n");
+      "    *===========================================================*\n");
   outfile->Printf(
-      "    * Iter       Energy            delta E    ||gradient||  *\n");
+      "    * Iter       Energy            delta E    ||gradient||      *\n");
   outfile->Printf(
-      "    *-------------------------------------------------------*\n");
+      "    *-----------------------------------------------------------*\n");
 
   while (!converged && iter < maxiter_) {
     e_old = e_new;
@@ -365,10 +412,11 @@ double SCF::compute_energy() {
     std::vector<SharedMatrix> &Cl = jk_->C_left();
     Cl.clear();
 
-    SharedMatrix CTemp = std::make_shared<Matrix>(nirrep_, irrep_sizes_.data(), irrep_sizes_.data());
+    SharedMatrix CTemp = std::make_shared<Matrix>(nirrep_, irrep_sizes_.data(),
+                                                  irrep_sizes_.data());
 
     for (int i = 0; i < nirrep_; i++) {
-      if(irrep_sizes_[i] == 0) {
+      if (irrep_sizes_[i] == 0) {
         continue;
       }
       for (int j = 0; j < irrep_sizes_[i]; j++) {
@@ -390,7 +438,7 @@ double SCF::compute_energy() {
     auto K = einsums::BlockTensor<double, 2>("K matrix", irrep_sizes_);
 
     for (int i = 0; i < nirrep_; i++) {
-      if(irrep_sizes_[i] == 0) {
+      if (irrep_sizes_[i] == 0) {
         continue;
       }
       for (int j = 0; j < irrep_sizes_[i]; j++) {
@@ -406,10 +454,6 @@ double SCF::compute_energy() {
     F_ += J;
     F_ -= K;
 
-    // Compute the energy
-    e_new = e_nuc_ + compute_electronic_energy();
-    double dE = e_new - e_old;
-
     // Compute the orbital gradient, FDS-SDF
     einsums::linear_algebra::gemm<false, false>(1.0, D_, S_, 0.0, &Temp1);
     einsums::linear_algebra::gemm<false, false>(1.0, F_, Temp1, 0.0, &FDS);
@@ -422,20 +466,50 @@ double SCF::compute_energy() {
     // Density RMS
     einsums::Tensor<double, 0> dRMS_tens;
 
-    einsums::tensor_algebra::einsum(
-        0.0, einsums::tensor_algebra::Indices{}, &dRMS_tens,
-        1.0 / (nso_ * nso_),
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::j},
-        Temp1,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::j},
-        Temp1);
+#pragma omp taskgroup
+    {
+#pragma omp task depend(in : Temp1)                                            \
+    depend(inout : errors, focks, this->F_, coefs) shared(errors, focks, coefs)
+      {
+        if (diis_max_iters_ > 0) {
+
+          if (errors.size() == diis_max_iters_) {
+            errors.pop_front();
+          }
+          errors.push_back(Temp1);
+          if (focks.size() == diis_max_iters_) {
+            focks.pop_front();
+          }
+          focks.push_back(F_);
+
+          compute_diis_coefs(errors, &coefs);
+
+          compute_diis_fock(coefs, focks, &F_);
+        }
+      }
+
+#pragma omp task depend(in : Temp1) depend(out : dRMS_tens)
+      {
+        einsums::tensor_algebra::einsum(
+            0.0, einsums::tensor_algebra::Indices{}, &dRMS_tens,
+            1.0 / (nso_ * nso_),
+            einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+                                             einsums::tensor_algebra::index::j},
+            Temp1,
+            einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+                                             einsums::tensor_algebra::index::j},
+            Temp1);
+      }
+    }
 
     double dRMS = std::sqrt(dRMS_tens);
 
+    // Compute the energy
+    e_new = e_nuc_ + compute_electronic_energy();
+    double dE = e_new - e_old;
+
     // Optional printing
-    if (print_ > 1) {
+    if (print_ > 3) {
       fprintln(*outfile->stream(), Ft_);
       fprintln(*outfile->stream(), Evecs);
       fprintln(*outfile->stream(), Evals);
@@ -445,12 +519,25 @@ double SCF::compute_energy() {
       fprintln(*outfile->stream(), SDF);
       Temp1.set_name("Orbital Gradient");
       fprintln(*outfile->stream(), Temp1);
+
+      outfile->Printf("DIIS error size: %d\nDIIS Focks size: %d\n", errors.size(), focks.size());
+      outfile->Printf("DIIS coefs: ");
+
+      for(int i = 0; i < coefs.size(); i++) {
+        outfile->Printf("%lf ", coefs[i]);
+      }
+      outfile->Printf("\n");
     }
 
     converged = (fabs(dE) < e_convergence_) && (dRMS < d_convergence_);
 
-    outfile->Printf("    * %3d %20.14f    %9.2e    %9.2e    *\n", iter, e_new,
-                    dE, dRMS);
+    outfile->Printf("    * %3d %20.14f    %9.2e    %9.2e    ", iter, e_new, dE,
+                    dRMS);
+    if (focks.size() > 0) {
+      outfile->Printf("DIIS*\n");
+    } else {
+      outfile->Printf("    *\n");
+    }
 
     einsums::linear_algebra::gemm<false, false>(1.0, F_, X_, 0.0, &Temp1);
     einsums::linear_algebra::gemm<true, false>(1.0, X_, Temp1, 0.0, &Ft_);
@@ -475,7 +562,7 @@ double SCF::compute_energy() {
     iter++;
   }
   outfile->Printf(
-      "    *=======================================================*\n");
+      "    *===========================================================*\n");
 
   if (!converged)
     throw PSIEXCEPTION("The SCF iterations did not converge.");
