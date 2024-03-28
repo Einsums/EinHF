@@ -56,8 +56,6 @@ class SCF : public Wavefunction {
     /// The number of doubly occupied orbitals
     int ndocc_;
 
-    /// The number of irreps.
-    int nirrep_;
     /// The occupation per irrep.
     std::vector<int> occ_per_irrep_;
     /// The sizes of each irrep.
@@ -96,7 +94,7 @@ class SCF : public Wavefunction {
     /// Sets up the integrals object
     void init_integrals();
     /// Updates the occupied MO coefficients
-    void update_Cocc();
+    void update_Cocc(const einsums::Tensor<double, 1> &energies);
 };
 
 }} //End namespaces

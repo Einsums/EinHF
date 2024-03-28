@@ -37,6 +37,7 @@
 #include "psi4/libmints/integral.h"
 #include "psi4/libmints/mintshelper.h"
 #include "psi4/libmints/molecule.h"
+#include "psi4/libmints/sobasis.h"
 #include "psi4/libmints/vector.h"
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
@@ -53,6 +54,9 @@ SCF::SCF(SharedWavefunction ref_wfn, Options &options) : Wavefunction(options) {
   // Shallow copy useful objects from the passed in wavefunction
   shallow_copy(ref_wfn);
 
+  nirrep_ = sobasisset_->nirrep();
+  nso_ = basisset_->nbf();
+
   print_ = options_.get_int("PRINT");
   maxiter_ = options_.get_int("SCF_MAXITER");
   e_convergence_ = options_.get_double("E_CONVERGENCE");
@@ -68,67 +72,41 @@ SCF::SCF(SharedWavefunction ref_wfn, Options &options) : Wavefunction(options) {
   Cocc_.set_name("Occupied MO Coefficients");
   D_.set_name("Density Matrix");
 
-#pragma omp task depend(inout : this->X_)
-  {
-    for (int i = 0; i < nirrep_; i++) {
-      auto block = einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
-                                              irrep_sizes_[i], irrep_sizes_[i]);
-
-      X_.push_block(block);
-    }
+  for (int i = 0; i < this->nirrep_; i++) {
+    X_.push_block(einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
+                                             irrep_sizes_[i], irrep_sizes_[i]));
   }
 
-#pragma omp task depend(inout : this->F_)
-  {
-    for (int i = 0; i < nirrep_; i++) {
-      auto block = einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
-                                              irrep_sizes_[i], irrep_sizes_[i]);
-
-      F_.push_block(block);
-    }
+  for (int i = 0; i < this->nirrep_; i++) {
+    F_.push_block(einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
+                                             irrep_sizes_[i], irrep_sizes_[i]));
   }
 
-#pragma omp task depend(inout : this->Ft_)
-  {
-    for (int i = 0; i < nirrep_; i++) {
-      auto block = einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
-                                              irrep_sizes_[i], irrep_sizes_[i]);
-
-      Ft_.push_block(block);
-    }
+  for (int i = 0; i < this->nirrep_; i++) {
+    this->Ft_.push_block(einsums::Tensor<double, 2>(
+        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
   }
 
-#pragma omp task depend(inout : this->C_)
-  {
-    for (int i = 0; i < nirrep_; i++) {
-      auto block = einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
-                                              irrep_sizes_[i], irrep_sizes_[i]);
+  for (int i = 0; i < this->nirrep_; i++) {
+    auto block = einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
+                                            irrep_sizes_[i], irrep_sizes_[i]);
 
-      C_.push_block(block);
-    }
+    C_.push_block(block);
   }
 
-#pragma omp task depend(inout : this->Cocc_)
-  {
-    for (int i = 0; i < nirrep_; i++) {
-      auto block = einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
-                                              irrep_sizes_[i], irrep_sizes_[i]);
+  for (int i = 0; i < this->nirrep_; i++) {
+    auto block = einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
+                                            irrep_sizes_[i], irrep_sizes_[i]);
 
-      Cocc_.push_block(block);
-    }
+    Cocc_.push_block(block);
   }
 
-#pragma omp task depend(inout : this->D_)
-  {
-    for (int i = 0; i < nirrep_; i++) {
-      auto block = einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
-                                              irrep_sizes_[i], irrep_sizes_[i]);
+  for (int i = 0; i < this->nirrep_; i++) {
+    auto block = einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
+                                            irrep_sizes_[i], irrep_sizes_[i]);
 
-      D_.push_block(block);
-    }
+    D_.push_block(block);
   }
-#pragma omp taskgroup
-  ;
 }
 
 SCF::~SCF() {}
@@ -161,7 +139,7 @@ void SCF::init_integrals() {
     options_.print();
   }
 
-  nso_ = basisset_->nbf();
+  // nso_ = basisset_->nso();
 
   // Nuclear repulsion without a field
   e_nuc_ = molecule_->nuclear_repulsion_energy({0, 0, 0});
@@ -175,46 +153,46 @@ void SCF::init_integrals() {
 
   // Core Hamiltonian is Kinetic + Potential
   auto H_mat = mints->so_kinetic();
+
+  this->nirrep_ = (int)S_mat->nirrep();
+
+  if (this->nirrep_ == 1) {
+    outfile->Printf("Hi");
+  }
+
+  occ_per_irrep_.resize(nirrep_);
+
   H_mat->add(mints->so_potential());
 
   H_.set_name("Hamiltonian");
   S_.set_name("Overlap");
 
-#pragma omp task depend(inout : this->S_)
-  {
-    for (int i = 0; i < S_mat->nirrep(); i++) {
-      irrep_sizes_.push_back(S_mat->rowdim(i));
-      auto S_block = einsums::Tensor<double, 2>(
-          molecule_->irrep_labels().at(i), S_mat->rowdim(i), S_mat->coldim(i));
+  for (int i = 0; i < S_mat->nirrep(); i++) {
+    irrep_sizes_.push_back(S_mat->rowdim(i));
+    auto S_block = einsums::Tensor<double, 2>(
+        molecule_->irrep_labels().at(i), S_mat->rowdim(i), S_mat->coldim(i));
 
-#pragma omp parallel for
-      for (int j = 0; j < S_mat->rowdim(i); j++) {
-        for (int k = 0; k < S_mat->coldim(i); k++) {
-          S_block(j, k) = S_mat->get(i, j, k);
-        }
+    for (int j = 0; j < S_mat->rowdim(i); j++) {
+      for (int k = 0; k < S_mat->coldim(i); k++) {
+        S_block(j, k) = S_mat->get(i, j, k);
       }
-
-      S_.push_block(S_block);
     }
+
+    S_.push_block(S_block);
   }
 
-#pragma omp task depend(inout : this->H_)
-  {
-    for (int i = 0; i < S_mat->nirrep(); i++) {
-      auto H_block = einsums::Tensor<double, 2>(
-          molecule_->irrep_labels().at(i), H_mat->rowdim(i), H_mat->coldim(i));
+  for (int i = 0; i < S_mat->nirrep(); i++) {
+    auto H_block = einsums::Tensor<double, 2>(
+        molecule_->irrep_labels().at(i), H_mat->rowdim(i), H_mat->coldim(i));
 
-#pragma omp parallel for
-      for (int j = 0; j < H_mat->rowdim(i); j++) {
-        for (int k = 0; k < H_mat->coldim(i); k++) {
-          H_block(j, k) = H_mat->get(i, j, k);
-        }
+    for (int j = 0; j < H_mat->rowdim(i); j++) {
+      for (int k = 0; k < H_mat->coldim(i); k++) {
+        H_block(j, k) = H_mat->get(i, j, k);
       }
-
-      H_.push_block(H_block);
     }
+
+    H_.push_block(H_block);
   }
-#pragma omp taskgroup
 
   if (print_ > 3) {
     fprintln(*outfile->stream(), S_);
@@ -253,24 +231,56 @@ double SCF::compute_electronic_energy() {
   return (double)e_tens;
 }
 
-void SCF::update_Cocc() {
+void SCF::update_Cocc(const einsums::Tensor<double, 1> &energies) {
+  // Update occupation.
+
+  for (int i = 0; i < nirrep_; i++) {
+    occ_per_irrep_[i] = 0;
+  }
+
+  for (int i = 0; i < ndocc_; i++) {
+    double curr_min = INFINITY;
+    int irrep_occ = -1;
+
+    for (int j = 0; j < nirrep_; j++) {
+      if (occ_per_irrep_[j] >= irrep_sizes_[j]) {
+        continue;
+      }
+
+      double energy = energies(S_.block_range(j)[0] + occ_per_irrep_[j]);
+
+      if (energy < curr_min) {
+        curr_min = energy;
+        irrep_occ = j;
+      }
+    }
+
+    occ_per_irrep_[irrep_occ]++;
+  }
+
   Cocc_.zero();
 
 #pragma omp taskloop
   for (int i = 0; i < nirrep_; i++) {
+#pragma omp parallel for
     for (int j = 0; j < Cocc_[i].dim(0); j++) {
+#pragma omp parallel for
       for (int k = 0; k < occ_per_irrep_[i]; k++) {
         Cocc_[i](j, k) = C_[i](j, k);
       }
     }
   }
+#pragma omp taskgroup
+  ;
 }
 
 double SCF::compute_energy() {
 
   // Allocate a few temporary matrices
-  auto Temp1 = einsums::BlockTensor<double, 2>("Temporary Array 1", irrep_sizes_);
-  auto Temp2 = einsums::BlockTensor<double, 2>("Temporary Array 2", irrep_sizes_);
+  auto Temp1 =
+      einsums::BlockTensor<double, 2>("Temporary Array 1", irrep_sizes_);
+  auto Temp2 =
+      einsums::BlockTensor<double, 2>("Temporary Array 2", irrep_sizes_);
   auto FDS = einsums::BlockTensor<double, 2>("FDS", irrep_sizes_);
   auto SDF = einsums::BlockTensor<double, 2>("SDF", irrep_sizes_);
   auto Evecs = einsums::BlockTensor<double, 2>("Eigenvectors", irrep_sizes_);
@@ -284,12 +294,27 @@ double SCF::compute_energy() {
   einsums::linear_algebra::gemm<false, false>(1.0, F_, X_, 0.0, &Temp1);
   einsums::linear_algebra::gemm<true, false>(1.0, X_, Temp1, 0.0, &Ft_);
 
+  for (int i = 0; i < Ft_.num_blocks(); i++) {
+    outfile->Printf("Range %d: %d - %d\n", i, Ft_.block_range(i)[0],
+                    Ft_.block_range(i)[1]);
+  }
+
   Evecs = Ft_;
+
+  for (int i = 0; i < Evecs.num_blocks(); i++) {
+    outfile->Printf("Range %d: %d - %d\n", i, Evecs.block_range(i)[0],
+                    Evecs.block_range(i)[1]);
+  }
+
+  fprintln(*outfile->stream(), Evecs);
+  outfile->stream()->flush();
+
+  Evals.zero();
   einsums::linear_algebra::syev(&Evecs, &Evals);
 
   einsums::linear_algebra::gemm<false, true>(1.0, X_, Evecs, 0.0, &C_);
 
-  update_Cocc();
+  update_Cocc(Evals);
 
   einsums::tensor_algebra::einsum(
       einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
@@ -340,11 +365,14 @@ double SCF::compute_energy() {
     std::vector<SharedMatrix> &Cl = jk_->C_left();
     Cl.clear();
 
-    SharedMatrix CTemp = std::make_shared<Matrix>(nso_, ndocc_);
+    SharedMatrix CTemp = std::make_shared<Matrix>(nirrep_, irrep_sizes_.data(), irrep_sizes_.data());
 
-    for(int i = 0; i < nirrep_; i++) {
-      for(int j = 0; j < irrep_sizes_[i]; j++) {
-        for(int k = 0; k < occ_per_irrep_[i]; k++) {
+    for (int i = 0; i < nirrep_; i++) {
+      if(irrep_sizes_[i] == 0) {
+        continue;
+      }
+      for (int j = 0; j < irrep_sizes_[i]; j++) {
+        for (int k = 0; k < occ_per_irrep_[i]; k++) {
           (*CTemp.get())(i, j, k) = Cocc_[i](j, k);
         }
       }
@@ -361,9 +389,12 @@ double SCF::compute_energy() {
     auto J = einsums::BlockTensor<double, 2>("J matrix", irrep_sizes_);
     auto K = einsums::BlockTensor<double, 2>("K matrix", irrep_sizes_);
 
-    for(int i = 0; i < nirrep_; i++) {
-      for(int j = 0; j < irrep_sizes_[i]; j++) {
-        for(int k = 0; k < irrep_sizes_[i]; k++) {
+    for (int i = 0; i < nirrep_; i++) {
+      if(irrep_sizes_[i] == 0) {
+        continue;
+      }
+      for (int j = 0; j < irrep_sizes_[i]; j++) {
+        for (int k = 0; k < irrep_sizes_[i]; k++) {
           J[i](j, k) = 2 * J_mat[0]->get(i, j, k);
           K[i](j, k) = K_mat[0]->get(i, j, k);
         }
@@ -429,7 +460,7 @@ double SCF::compute_energy() {
 
     einsums::linear_algebra::gemm<false, true>(1.0, X_, Evecs, 0.0, &C_);
 
-    update_Cocc();
+    update_Cocc(Evals);
 
     einsums::tensor_algebra::einsum(
         einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,

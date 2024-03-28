@@ -12,7 +12,6 @@ H 1 R 2 A
 R = .9
 A = 104.5
 
-symmetry c1
 }
 
 set {

@@ -37,5 +37,8 @@ find_package(Einsums REQUIRED)
 
 add_psi4_plugin(einhf plugin.cc scf.cc)
 
+target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,Clang>:-gdwarf-2 -O0 -g3 -ggdb>>)
+target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Og -g3 -ggdb>>)
+
 target_link_libraries(einhf PUBLIC Einsums::einsums)
 target_include_directories(einhf PUBLIC ${Einsums_INCLUDE_DIRS})
