@@ -51,6 +51,10 @@ int read_options(std::string name, Options &options)
         options.add_double("D_CONVERGENCE", 1.0E-6);
         /*- How many iteration to allow -*/
         options.add_int("SCF_MAXITER", 50);
+        /*- Whether to use DIIS acceleration. -*/
+        options.add_bool("DIIS", true);
+        /*- How many DIIS vectors to store. -*/
+        options.add_int("DIIS_MAX_VECS", 6);
     }
 
     return true;
@@ -61,7 +65,7 @@ SharedWavefunction einhf(SharedWavefunction ref_wfn, Options &options)
 {
     einsums::initialize();
     // Build an SCF object, and tell it to compute its energy
-    SharedWavefunction scfwfn = std::shared_ptr<Wavefunction>(new SCF(ref_wfn, options));
+    SharedWavefunction scfwfn = std::shared_ptr<Wavefunction>(new EinsumsSCF(ref_wfn, options));
     scfwfn->compute_energy();
 
     einsums::finalize();
