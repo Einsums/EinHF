@@ -267,13 +267,8 @@ void EinsumsSCF::update_Cocc(const einsums::Tensor<double, 1> &energies) {
   {
 #pragma omp taskloop
     for (int i = 0; i < nirrep_; i++) {
-#pragma omp parallel for
-      for (int j = 0; j < Cocc_[i].dim(0); j++) {
-#pragma omp parallel for
-        for (int k = 0; k < occ_per_irrep_[i]; k++) {
-          Cocc_[i](j, k) = C_[i](j, k);
-        }
-      }
+      Cocc_[i](einsums::AllT{}, einsums::Range(0, occ_per_irrep_[i])) =
+          C_[i](einsums::AllT{}, einsums::Range(0, occ_per_irrep_[i]));
     }
   }
 }
@@ -327,7 +322,7 @@ void EinsumsSCF::compute_diis_fock(
 }
 
 double EinsumsSCF::compute_energy() {
-  if(diis_max_iters_ != 0) {
+  if (diis_max_iters_ != 0) {
     outfile->Printf("Performing DIIS with %d vectors.\n", diis_max_iters_);
   } else {
     outfile->Printf("Turning DIIS off.\n");
@@ -469,7 +464,8 @@ double EinsumsSCF::compute_energy() {
 #pragma omp taskgroup
     {
 #pragma omp task depend(in : Temp1)                                            \
-    depend(inout : errors, focks, this->F_, coefs) shared(errors, focks, coefs)
+    depend(inout : errors, focks, this->F_, coefs)                             \
+    shared(errors, focks, coefs)
       {
         if (diis_max_iters_ > 0) {
 
@@ -520,10 +516,11 @@ double EinsumsSCF::compute_energy() {
       Temp1.set_name("Orbital Gradient");
       fprintln(*outfile->stream(), Temp1);
 
-      outfile->Printf("DIIS error size: %d\nDIIS Focks size: %d\n", errors.size(), focks.size());
+      outfile->Printf("DIIS error size: %d\nDIIS Focks size: %d\n",
+                      errors.size(), focks.size());
       outfile->Printf("DIIS coefs: ");
 
-      for(int i = 0; i < coefs.size(); i++) {
+      for (int i = 0; i < coefs.size(); i++) {
         outfile->Printf("%lf ", coefs[i]);
       }
       outfile->Printf("\n");
