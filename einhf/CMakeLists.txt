@@ -39,8 +39,6 @@ option(BUILD_GPU "Whether to build the GPU plugin." OFF)
 
 if(BUILD_GPU)
 
-enable_language(HIP)
-
         if(NOT HIP_INSTALL_DIR)
                 message(FATAL_ERROR "Please set HIP_INSTALL_DIR.")
         endif()
@@ -71,13 +69,14 @@ enable_language(HIP)
         set(CURSES_NEED_NCURSES True)
         find_package(Curses)
 
-add_psi4_plugin(einhf plugin.cc scf.cc scf-gpu.cc scf-uhf.cc)
+add_psi4_plugin(einhf plugin.cc scf.cc scf-gpu.hip scf-uhf.cc)
 else()
 add_psi4_plugin(einhf plugin.cc scf.cc scf-uhf.cc)
 endif()
 
-target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,Clang>:-gdwarf-2 -O0 -g3 -ggdb>>)
-target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Og -g3 -ggdb>>)
+target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,Clang>:-O0 -gdwarf-4 -ggdb -g3>>)
+target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:HIP,Clang>:-O0 -gdwarf-4 -g3 -ggdb>>)
+target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Og -g3>>)
 
 target_link_libraries(einhf PUBLIC Einsums::einsums)
 target_include_directories(einhf PUBLIC ${Einsums_INCLUDE_DIRS})

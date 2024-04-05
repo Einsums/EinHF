@@ -4,7 +4,7 @@
 sys.path.insert(0, './..')
 import einhf
 
-set reference uhf
+set reference rhf
 
 molecule {
 O
@@ -21,10 +21,11 @@ set {
 }
 
 set GUESS CORE
-set DIIS TRUE 
+set DIIS FALSE 
 set SCF_INITIAL_ACCELERATOR NONE
 set PRINT 1
 set SCF_TYPE PK
+set COMPUTE GPU
 
 energy('einhf')
 

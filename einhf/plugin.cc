@@ -31,6 +31,10 @@
 #include "scf-uhf.h"
 #include "scf.h"
 
+#ifdef __HIP__
+#include "scf-gpu.h"
+#endif
+
 #include "psi4/libmints/matrix.h"
 #include "psi4/libmints/vector.h"
 #include "psi4/liboptions/liboptions.h"
@@ -64,6 +68,8 @@ extern "C" PSI_API int read_options(std::string name, Options &options) {
     options.add_int("DIIS_MAX_VECS", 6);
     /*- What reference to use -*/
     options.add_str("REFERENCE", "RHF");
+    /*- What kind of SCF to do. -*/
+    options.add_str("COMPUTE", "CPU");
   }
 
   return true;
@@ -72,7 +78,8 @@ extern "C" PSI_API int read_options(std::string name, Options &options) {
 extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
                                             Options &options) {
   einsums::initialize();
-  if (to_lower(options.get_str("REFERENCE")) == "rhf") {
+  if (to_lower(options.get_str("REFERENCE")) == "rhf" &&
+      to_lower(options.get_str("COMPUTE")) == "cpu") {
     // Build an SCF object, and tell it to compute its energy
     SharedWavefunction scfwfn =
         std::shared_ptr<Wavefunction>(new EinsumsSCF(ref_wfn, options));
@@ -85,10 +92,25 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
     einsums::finalize(true);
 
     return scfwfn;
-  } else if (to_lower(options.get_str("REFERENCE")) == "uhf") {
+  } else if (to_lower(options.get_str("REFERENCE")) == "uhf" &&
+             to_lower(options.get_str("COMPUTE")) == "cpu") {
     // Build an SCF object, and tell it to compute its energy
     SharedWavefunction scfwfn =
         std::shared_ptr<Wavefunction>(new EinsumsUHF(ref_wfn, options));
+#pragma omp parallel
+    {
+#pragma omp single
+      { scfwfn->compute_energy(); }
+    }
+
+    einsums::finalize(true);
+
+    return scfwfn;
+  } else if (to_lower(options.get_str("REFERENCE")) == "rhf" &&
+             to_lower(options.get_str("COMPUTE")) == "gpu") {
+    // Build an SCF object, and tell it to compute its energy
+    SharedWavefunction scfwfn =
+        std::shared_ptr<Wavefunction>(new GPUEinsumsSCF(ref_wfn, options));
 #pragma omp parallel
     {
 #pragma omp single
