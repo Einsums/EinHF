@@ -232,6 +232,9 @@ double GPUEinsumsSCF::compute_electronic_energy() {
   auto temp = einsums::BlockDeviceTensor<double, 2>("temp", einsums::detail::DEV_ONLY, H_.vector_dims());
 
   temp = H_;
+
+  einsums::gpu::all_stream_wait();
+
   temp += F_;
 
   einsums::gpu::device_synchronize();
@@ -281,7 +284,7 @@ void GPUEinsumsSCF::update_Cocc(
 
   Cocc_.zero();
 
-  einsums::gpu::all_stream_wait();
+  einsums::gpu::all_streams_wait();
 
 #pragma omp taskgroup
   {
@@ -303,7 +306,6 @@ void GPUEinsumsSCF::compute_diis_coefs(
 
   B_mat->zero();
 
-  einsums::gpu::all_stream_wait();
   (*B_mat)(einsums::Range{errors.size(), errors.size() + 1}, einsums::AllT{}) =
       1.0;
   (*B_mat)(einsums::AllT{}, einsums::Range{errors.size(), errors.size() + 1}) =
@@ -320,16 +322,12 @@ void GPUEinsumsSCF::compute_diis_coefs(
   einsums::DeviceTensor<double, 2> res_mat =
       einsums::DeviceTensor<double, 2>("DIIS result matrix", einsums::detail::MAPPED, 1, errors.size() + 1);
 
-  einsums::gpu::all_stream_wait();
   res_mat.zero();
-  einsums::gpu::all_stream_wait();
   res_mat(0, errors.size()) = 1.0;
 
   einsums::linear_algebra::gesv(B_mat, &res_mat);
 
   out->resize(errors.size());
-
-  einsums::gpu::all_stream_wait();
 
   for (int i = 0; i < errors.size(); i++) {
     out->at(i) = res_mat(0, i);
@@ -344,8 +342,6 @@ void GPUEinsumsSCF::compute_diis_fock(
     einsums::BlockDeviceTensor<double, 2> *out) const {
 
   out->zero();
-
-  einsums::gpu::all_stream_wait();
 
 #pragma omp parallel for
   for (int i = 0; i < coefs.size(); i++) {
@@ -378,15 +374,19 @@ double GPUEinsumsSCF::compute_energy() {
 
   F_ = H_;
 
+  einsums::gpu::all_streams_wait();
+
   einsums::linear_algebra::symm_gemm<false, false>(F_, X_, &Ft_);
 
   Evecs = Ft_;
 
   Evals.zero();
+
+  einsums::gpu::all_streams_wait();
+
   einsums::linear_algebra::syev(&Evecs, &Evals);
 
   einsums::linear_algebra::gemm<false, true>(1.0, X_, Evecs, 0.0, &C_);
-
 
   update_Cocc(Evals);
 
@@ -465,6 +465,8 @@ double GPUEinsumsSCF::compute_energy() {
     auto J = einsums::BlockDeviceTensor<double, 2>("J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
     auto K = einsums::BlockDeviceTensor<double, 2>("K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
 
+    einsums::gpu::all_stream_wait();
+
     for (int i = 0; i < nirrep_; i++) {
       if (irrep_sizes_[i] == 0) {
         continue;
@@ -472,13 +474,11 @@ double GPUEinsumsSCF::compute_energy() {
 
       for(int j = 0; j < irrep_sizes_[i]; j++) {
         for(int k = 0; k < irrep_sizes_[i]; k++) {
-          J[i](j, k) = J_mat[0]->get(i, j, k);
+          J[i](j, k) = 2 * J_mat[0]->get(i, j, k);
           K[i](j, k) = K_mat[0]->get(i, j, k);
         }
       }
     }
-
-    J *= 2.0;
 
     einsums::gpu::all_stream_wait();
 
@@ -560,6 +560,7 @@ double GPUEinsumsSCF::compute_energy() {
     if (print_ > 3) {
       einsums::gpu::all_stream_wait();
       fprintln(*outfile->stream(), Ft_);
+      fprintln(*outfile->stream(), F_);
       fprintln(*outfile->stream(), Evecs);
       fprintln(*outfile->stream(), Evals);
       fprintln(*outfile->stream(), C_);

@@ -512,6 +512,7 @@ double EinsumsSCF::compute_energy() {
     // Optional printing
     if (print_ > 3) {
       fprintln(*outfile->stream(), Ft_);
+      fprintln(*outfile->stream(), F_);
       fprintln(*outfile->stream(), Evecs);
       fprintln(*outfile->stream(), Evals);
       fprintln(*outfile->stream(), C_);
