@@ -344,9 +344,9 @@ void EinsumsUHF::compute_diis_coefs(
       "DIIS error matrix", errors.size() + 1, errors.size() + 1);
 
   B_mat.zero();
-  B_mat(einsums::Range{errors.size(), errors.size() + 1}, einsums::AllT{}) =
+  B_mat(einsums::Range{errors.size(), errors.size() + 1}, einsums::Range{0, errors.size()}) =
       1.0;
-  B_mat(einsums::AllT{}, einsums::Range{errors.size(), errors.size() + 1}) =
+  B_mat(einsums::Range{0, errors.size()}, einsums::Range{errors.size(), errors.size() + 1}) =
       1.0;
 
   for (int i = 0; i < errors.size(); i++) {
@@ -556,6 +556,8 @@ double EinsumsUHF::compute_energy() {
 
     // Density RMS
     einsums::Tensor<double, 0> dRMS_tensa, dRMS_tensb;
+    dRMS_tensa = 0;
+    dRMS_tensb = 0;
 
     for (int i = 0; i < nirrep_; i++) {
       if (irrep_sizes_[i] == 0) {
@@ -659,7 +661,7 @@ double EinsumsUHF::compute_energy() {
                                          einsums::tensor_algebra::index::j},
         Temp1b);
 
-    double dRMS = std::sqrt(dRMS_tensa + dRMS_tensb);
+    double dRMS = std::sqrt((double) dRMS_tensa + (double) dRMS_tensb);
 
     // Compute the energy
     e_new = e_nuc_ + compute_electronic_energy();
