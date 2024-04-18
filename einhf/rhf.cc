@@ -28,7 +28,7 @@
  * @END LICENSE
  */
 
-#include "scf.h"
+#include "rhf.h"
 
 #include "einsums.hpp"
 
@@ -212,10 +212,10 @@ void EinsumsSCF::init_integrals() {
 
   outfile->Printf("    Forming JK object\n\n");
   // Construct a JK object that compute J and K SCF matrices very efficiently
-  jk_ = JK::build_JK(basisset_, std::shared_ptr<BasisSet>(), options_);
+  jk_ = JK::build_JK(basisset_, mintshelper_->get_basisset("DF_BASIS_SCF"), options_, false, Process::environment.get_memory() * 0.8);
 
   // This is a very heavy compute object, lets give it 80% of our total memory
-  jk_->set_memory(Process::environment.get_memory() * 0.8);
+  //jk_->set_memory(Process::environment.get_memory() * 0.8);
   jk_->initialize();
   jk_->print_header();
 }

@@ -28,11 +28,12 @@
  * @END LICENSE
  */
 
-#include "scf-uhf.h"
-#include "scf.h"
+#include "uhf.h"
+#include "rhf.h"
+#include "rohf.h"
 
 #ifdef __HIP__
-#include "scf-gpu.h"
+#include "rhf-gpu.h"
 #endif
 
 #include "psi4/libmints/matrix.h"

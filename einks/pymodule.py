@@ -1,7 +1,7 @@
 #
 # @BEGIN LICENSE
 #
-# einhf by Psi4 Developer, a plugin to:
+# einks by Psi4 Developer, a plugin to:
 #
 # Psi4: an open-source quantum chemistry software package
 #
@@ -32,39 +32,35 @@ import psi4
 import psi4.driver.p4util as p4util
 from psi4.driver.procrouting import proc_util
 
-def run_einhf(name, **kwargs):
+def run_einks(name, **kwargs):
     r"""Function encoding sequence of PSI module and plugin calls so that
-    einhf can be called via :py:func:`~driver.energy`. For scf plugins.
+    einks can be called via :py:func:`~driver.energy`. For scf plugins.
 
-    >>> energy('einhf')
+    >>> energy('einks')
 
     """
     lowername = name.lower()
     kwargs = p4util.kwargs_lower(kwargs)
 
-    # Your plugin's psi4 run sequence goes here
-    #psi4.core.set_local_option('EINHF', 'PRINT', 1)
-
     # Build a new blank wavefunction to pass into scf
-    einhf_molecule = kwargs.get('molecule', psi4.core.get_active_molecule())
+    einks_molecule = kwargs.get('molecule', psi4.core.get_active_molecule())
 
-    aux_basis = psi4.core.BasisSet.build(einhf_molecule, key = "DF_BASIS_SCF", target = psi4.core.get_option("SCF", "DF_BASIS_SCF"),
-                                         fitrole = "JKFIT", other = psi4.core.get_global_option("BASIS"))
+    if "dft_functional" in kwargs :
+        psi4.core.set_local_option("EINKS", "DFT_FUNCTIONAL", kwargs["dft_functional"])
     
-    new_wfn = psi4.core.Wavefunction.build(einhf_molecule, psi4.core.get_global_option('BASIS'))
 
-    new_wfn.set_basisset("DF_BASIS_SCF", aux_basis)
+    new_wfn = psi4.core.Wavefunction.build(einks_molecule, psi4.core.get_global_option('BASIS'))
 
-    einhf_wfn = psi4.core.plugin('einhf.so', new_wfn)
-    psi4.set_variable('CURRENT ENERGY', einhf_wfn.energy())
+    einks_wfn = psi4.core.plugin('einks.so', new_wfn)
+    psi4.set_variable('CURRENT ENERGY', einks_wfn.energy())
 
     if kwargs.get('ref_wfn', False):
-        return (einhf_wfn, einhf_wfn.energy())
+        return (einks_wfn, einks_wfn.energy())
     else:
-        return einhf_wfn.energy()
+        return einks_wfn.energy()
 
 # Integration with driver routines
-psi4.driver.procedures['energy']['einhf'] = run_einhf
+psi4.driver.procedures['energy']['einks'] = run_einks
 
 
 def exampleFN():

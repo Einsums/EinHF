@@ -2,9 +2,7 @@
 # PYTHONPATH must include directory above plugin directory.
 #     Define either externally or here, then import plugin.
 sys.path.insert(0, './..')
-import einhf
-
-set reference rohf
+import einks
 
 molecule {
 O
@@ -13,26 +11,20 @@ H 1 R 2 A
 
 R = .9
 A = 104.5
-
 }
 
 set {
   basis sto-3g
-  df_basis_scf def2-universal-jkfit
 }
 
-set GUESS CORE
-set DIIS FALSE
-set SCF_INITIAL_ACCELERATOR NONE
-set PRINT 1
-set SCF_TYPE PK
-set COMPUTE CPU
+set einks {
+  print 1
+}
 
-E2 = energy('scf')
+E1 = energy('einks')
 
-E1 = energy('einhf')
+E2 = energy('b3lyp')
 
 assert(abs(E1 - E2) < 1e-8)
 
-
-einhf.exampleFN()
+einks.exampleFN()
