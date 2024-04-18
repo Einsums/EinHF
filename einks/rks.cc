@@ -228,8 +228,7 @@ void EinsumsRKS::init_integrals() {
   jk_->print_header();
 
   std::optional<std::map<std::string, double>> tweaks(std::in_place);
-  func_ = std::make_shared<SuperFunctional>();
-  //func_ = SuperFunctional::XC_build(options_.get_str("DFT_FUNCTIONAL"), true, tweaks);
+  func_ = SuperFunctional::XC_build(options_.get_str("DFT_FUNCTIONAL"), true, tweaks);
 
   v_ = VBase::build_V(basisset_, func_, options_);
   v_->initialize();
