@@ -39,6 +39,8 @@ def run_einhf(name, **kwargs):
     >>> energy('einhf')
 
     """
+    
+    psi4.core.reopen_outfile()
     lowername = name.lower()
     kwargs = p4util.kwargs_lower(kwargs)
 

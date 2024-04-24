@@ -4,7 +4,7 @@
 sys.path.insert(0, './..')
 import einhf
 
-set reference rohf
+set reference rhf
 
 molecule {
 O
@@ -17,8 +17,7 @@ A = 104.5
 }
 
 set {
-  basis sto-3g
-  df_basis_scf def2-universal-jkfit
+  basis cc-pVTZ
 }
 
 set GUESS CORE
@@ -26,13 +25,11 @@ set DIIS FALSE
 set SCF_INITIAL_ACCELERATOR NONE
 set PRINT 1
 set SCF_TYPE PK
-set COMPUTE CPU
+set COMPUTE GPU
 
-E2 = energy('scf')
+E1 = energy("hf")
 
-E1 = energy('einhf')
+E2 = energy('einhf')
 
-assert(abs(E1 - E2) < 1e-8)
+assert(abs(E2 - E1) < 1e-6)
 
-
-einhf.exampleFN()

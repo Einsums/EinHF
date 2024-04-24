@@ -42,6 +42,7 @@
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
+#include "psi4/psi4-dec.h"
 #include <LinearAlgebra.hpp>
 #include <_Common.hpp>
 #include <_Index.hpp>
@@ -594,7 +595,7 @@ double EinsumsSCF::compute_energy() {
     }
 
     inds[min_ind]++;
-    outfile->Printf("%d %s: %lf\n", inds[min_ind],
+    outfile->Printf("%3d %s: %lf\n", inds[min_ind],
                     to_lower(S_[min_ind].name()).c_str(), curr_min);
   }
 
@@ -615,7 +616,7 @@ double EinsumsSCF::compute_energy() {
     }
 
     inds[min_ind]++;
-    outfile->Printf("%d %s: %lf\n", inds[min_ind],
+    outfile->Printf("%3d %s: %lf\n", inds[min_ind],
                     to_lower(S_[min_ind].name()).c_str(), curr_min);
   }
   energy_ = e_new;

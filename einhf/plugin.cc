@@ -30,7 +30,6 @@
 
 #include "uhf.h"
 #include "rhf.h"
-#include "rohf.h"
 
 #ifdef __HIP__
 #include "rhf-gpu.h"
@@ -78,6 +77,10 @@ extern "C" PSI_API int read_options(std::string name, Options &options) {
 
 extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
                                             Options &options) {
+  if(!outfile) {
+    printf("No output file.\n");
+  }
+  outfile->Printf("Initializing Einsums.\n");
   einsums::initialize();
   if (to_lower(options.get_str("REFERENCE")) == "rhf" &&
       to_lower(options.get_str("COMPUTE")) == "cpu") {
