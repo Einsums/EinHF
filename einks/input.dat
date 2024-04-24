@@ -17,13 +17,15 @@ set {
   basis sto-3g
 }
 
-set einks {
-  print 1
-}
+set GUESS CORE
+set DIIS FALSE
+set SCF_INITIAL_ACCELERATOR NONE
+set PRINT 1
+#set COMPUTE CPU
 
-E1 = energy('einks')
+E1 = energy('einks', dft_functional="pbe")
 
-E2 = energy('b3lyp')
+E2 = energy('pbe')
 
 assert(abs(E1 - E2) < 1e-8)
 

@@ -34,6 +34,7 @@ project(einks CXX)
 
 find_package(psi4 REQUIRED)
 find_package(Einsums REQUIRED)
+find_package(pybind11 REQUIRED)
 
 option(BUILD_GPU "Whether to build the GPU plugin." OFF)
 

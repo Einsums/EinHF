@@ -45,11 +45,16 @@ def run_einks(name, **kwargs):
     # Build a new blank wavefunction to pass into scf
     einks_molecule = kwargs.get('molecule', psi4.core.get_active_molecule())
 
-    if "dft_functional" in kwargs :
-        psi4.core.set_local_option("EINKS", "DFT_FUNCTIONAL", kwargs["dft_functional"])
-    
+    func_str = "b3lyp"
 
-    new_wfn = psi4.core.Wavefunction.build(einks_molecule, psi4.core.get_global_option('BASIS'))
+    if "dft_functional" in kwargs :
+        func_str = kwargs["dft_functional"]
+        
+    func, disp_type = psi4.dft.build_superfunctional(func_str, False)
+
+    ref_wfn = psi4.core.Wavefunction.build(einks_molecule, psi4.core.get_global_option('BASIS'))
+
+    new_wfn = psi4.proc.scf_wavefunction_factory(func_str, ref_wfn, "RKS", **kwargs)
 
     einks_wfn = psi4.core.plugin('einks.so', new_wfn)
     psi4.set_variable('CURRENT ENERGY', einks_wfn.energy())

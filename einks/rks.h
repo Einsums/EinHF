@@ -48,7 +48,7 @@ namespace einks{
 class EinsumsRKS : public Wavefunction {
   public:
     /// The constuctor
-    EinsumsRKS(SharedWavefunction ref_wfn, Options &options);
+    EinsumsRKS(SharedWavefunction ref_wfn, const std::shared_ptr<SuperFunctional> &functional, Options &options);
     /// The destuctor
     ~EinsumsRKS();
     /// Computes the SCF energy, and returns it

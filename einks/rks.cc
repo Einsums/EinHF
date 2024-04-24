@@ -32,19 +32,19 @@
 
 #include "einsums.hpp"
 
-#include <optional>
 #include <map>
+#include <optional>
 #include <string>
 
 #include "psi4/libfock/jk.h"
 #include "psi4/libfock/v.h"
+#include "psi4/libfunctional/superfunctional.h"
 #include "psi4/libmints/basisset.h"
 #include "psi4/libmints/integral.h"
 #include "psi4/libmints/mintshelper.h"
 #include "psi4/libmints/molecule.h"
 #include "psi4/libmints/sobasis.h"
 #include "psi4/libmints/vector.h"
-#include "psi4/libfunctional/superfunctional.h"
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
@@ -60,10 +60,13 @@ static std::string to_lower(const std::string &str) {
 }
 
 namespace psi {
+
 namespace einks {
 
-EinsumsRKS::EinsumsRKS(SharedWavefunction ref_wfn, Options &options)
-    : Wavefunction(options) {
+EinsumsRKS::EinsumsRKS(SharedWavefunction ref_wfn,
+                       const std::shared_ptr<SuperFunctional> &functional,
+                       Options &options)
+    : Wavefunction(options), func_(functional) {
 
   // Shallow copy useful objects from the passed in wavefunction
   shallow_copy(ref_wfn);
@@ -217,18 +220,19 @@ void EinsumsRKS::init_integrals() {
   }
 
   outfile->Printf("    Forming JK object\n\n");
+
+  // func_->set_deriv(1);
+
   // Construct a JK object that compute J and K SCF matrices very efficiently
   jk_ = JK::build_JK(basisset_, mintshelper_->get_basisset("DF_BASIS_SCF"),
                      options_, false, Process::environment.get_memory() * 0.8);
-  jk_->set_do_K(false);
+  jk_->set_do_K(func_->is_x_hybrid());
+  jk_->set_do_wK(func_->is_x_lrc());
 
   // This is a very heavy compute object, lets give it 80% of our total memory
   // jk_->set_memory(Process::environment.get_memory() * 0.8);
   jk_->initialize();
   jk_->print_header();
-
-  std::optional<std::map<std::string, double>> tweaks(std::in_place);
-  func_ = SuperFunctional::XC_build(options_.get_str("DFT_FUNCTIONAL"), true, tweaks);
 
   v_ = VBase::build_V(basisset_, func_, options_);
   v_->initialize();
@@ -253,7 +257,17 @@ double EinsumsRKS::compute_electronic_energy() {
                                        einsums::tensor_algebra::index::j},
       temp);
 
-  return (double)e_tens;
+  double dft_contrib = 0;
+
+  if(func_->needs_xc()) {
+    dft_contrib += v_->quadrature_values()["FUNCTIONAL"];
+  }
+
+  if(func_->needs_vv10()) {
+    dft_contrib += v_->quadrature_values()["VV10"];
+  }
+
+  return (double)e_tens + dft_contrib + scalar_variable("-D Energy");
 }
 
 void EinsumsRKS::update_Cocc(const einsums::Tensor<double, 1> &energies) {
@@ -461,7 +475,7 @@ double EinsumsRKS::compute_energy() {
       }
       for (int j = 0; j < irrep_sizes_[i]; j++) {
         for (int k = 0; k < irrep_sizes_[i]; k++) {
-          J[i](j, k) = J_mat[0]->get(i, j, k);
+          J[i](j, k) = 2 * J_mat[0]->get(i, j, k);
         }
       }
     }
@@ -469,14 +483,16 @@ double EinsumsRKS::compute_energy() {
     F_ += J;
 
     SharedMatrix D_mat = std::make_shared<Matrix>(nirrep_, irrep_sizes_.data(),
-                                                  occ_per_irrep_.data());
-    
+                                                  irrep_sizes_.data()),
+                 V_mat = std::make_shared<Matrix>(nirrep_, irrep_sizes_.data(),
+                                                  irrep_sizes_.data());
+
     for (int i = 0; i < nirrep_; i++) {
       if (irrep_sizes_[i] == 0) {
         continue;
       }
       for (int j = 0; j < irrep_sizes_[i]; j++) {
-        for (int k = 0; k < occ_per_irrep_[i]; k++) {
+        for (int k = 0; k < irrep_sizes_[i]; k++) {
           (*D_mat.get())(i, j, k) = D_[i](j, k);
         }
       }
@@ -485,7 +501,7 @@ double EinsumsRKS::compute_energy() {
     auto V = einsums::BlockTensor<double, 2>("V matrix", irrep_sizes_);
 
     std::vector<SharedMatrix> D_vec{D_mat};
-    std::vector<SharedMatrix> V_vec(1);
+    std::vector<SharedMatrix> V_vec{V_mat};
 
     v_->set_D(D_vec);
     v_->compute_V(V_vec);
@@ -496,12 +512,56 @@ double EinsumsRKS::compute_energy() {
       }
       for (int j = 0; j < irrep_sizes_[i]; j++) {
         for (int k = 0; k < irrep_sizes_[i]; k++) {
-          V[i](j, k) = V_vec[0]->get(i, j, k);
+          V[i](j, k) = V_mat->get(i, j, k);
         }
       }
     }
 
     F_ += V;
+
+    // Hybrid and LRC stuff.
+    double alpha = func_->x_alpha();
+    double beta = func_->x_beta();
+
+    if (func_->is_x_hybrid() && !(func_->is_x_lrc() && jk_->get_wcombine())) {
+      const std::vector<SharedMatrix> &K_mat = jk_->K();
+      auto K = einsums::BlockTensor<double, 2>("K matrix", irrep_sizes_);
+
+      for (int i = 0; i < nirrep_; i++) {
+        if (irrep_sizes_[i] == 0) {
+          continue;
+        }
+        for (int j = 0; j < irrep_sizes_[i]; j++) {
+          for (int k = 0; k < irrep_sizes_[i]; k++) {
+            K[i](j, k) = alpha * K_mat[0]->get(i, j, k);
+          }
+        }
+      }
+
+      F_ -= K;
+    }
+
+    if (func_->is_x_lrc()) {
+      const std::vector<SharedMatrix> &wK_mat = jk_->wK();
+      auto wK = einsums::BlockTensor<double, 2>("wK matrix", irrep_sizes_);
+
+      if (jk_->get_wcombine()) {
+        beta = 1;
+      }
+
+      for (int i = 0; i < nirrep_; i++) {
+        if (irrep_sizes_[i] == 0) {
+          continue;
+        }
+        for (int j = 0; j < irrep_sizes_[i]; j++) {
+          for (int k = 0; k < irrep_sizes_[i]; k++) {
+            wK[i](j, k) = beta * wK_mat[0]->get(i, j, k);
+          }
+        }
+      }
+
+      F_ -= wK;
+    }
 
     // Compute the orbital gradient, FDS-SDF
     einsums::linear_algebra::gemm<false, false>(1.0, D_, S_, 0.0, Temp1);
@@ -519,7 +579,7 @@ double EinsumsRKS::compute_energy() {
 #pragma omp taskgroup
     {
 #pragma omp task depend(in : *Temp1)                                           \
-    depend(inout : *errors, *focks, this->F_, coefs)
+    depend(inout : *errors, *focks, this -> F_, coefs)
       {
         if (diis_max_iters_ > 0) {
 

@@ -35,6 +35,7 @@
 #include "psi4/libmints/matrix.h"
 #include "psi4/libmints/vector.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
+#include "psi4/libscf_solver/hf.h"
 
 namespace psi{ namespace einks {
 
@@ -51,8 +52,6 @@ int read_options(std::string name, Options &options)
         options.add_double("D_CONVERGENCE", 1.0E-6);
         /*- How many iteration to allow -*/
         options.add_int("SCF_MAXITER", 50);
-        /*- What's the functional? -*/
-        options.add_str("DFT_FUNCTIONAL", "B3LYP");
     }
 
     return true;
@@ -61,80 +60,13 @@ int read_options(std::string name, Options &options)
 extern "C" PSI_API
 SharedWavefunction einks(SharedWavefunction ref_wfn, Options &options)
 {
-
-    // Start with some demos of the matrix toolkit (no symmetry in this case)
-    if(options.get_int("PRINT") > 5){
-        // Make a 3 X 3 matrix
-        auto matrix = std::make_shared<Matrix>("A Matrix", 3, 3);
-        // Make a vector of length 3
-        auto vector = std::make_shared<Vector>("A Vector", 3);
-        // vector = [ 1, 2, 3 ]
-        for(int i = 0; i < 3; ++i)
-            vector->set(i, i+1);
-        psi::outfile->Printf("After creating\n");
-        vector->print();
-        matrix->print();
-
-        // Assign the elements of the vector to the diagonal of matrix
-        matrix->set_diagonal(vector);
-        psi::outfile->Printf("After assigning the diagonals\n");
-        matrix->print();
-
-        // Try some matrix multiplies
-        auto identity = std::make_shared<Matrix>("Identity", 3, 3);
-        auto new_matrix = std::make_shared<Matrix>("New Matrix", 3, 3);
-        identity->identity();
-        identity->scale(2.0);
-        new_matrix->gemm(false, false, 1.0, identity, matrix, 0.0);
-        psi::outfile->Printf("The product, from the built-in function");
-        new_matrix->print();
-        // Now, do the same by hand
-        for(int row = 0; row < 3; ++row){
-            for(int col = 0; col < 0; ++col){
-                double val = 0.0;
-                for(int link = 0; link < 3; ++link){
-                    val += identity->get(row, link) * matrix->get(row, link);
-                }
-                new_matrix->set(row, col, val);
-            }
-        }
-        psi::outfile->Printf("The product, from the hand computed version");
-        matrix->print();
-
-        // Now diagonalize the matrix, ordering by ascending order of eigenvalues
-        auto evecs = std::make_shared<Matrix>("Matrix Eigenvectors", 3, 3);
-        auto evals = std::make_shared<Vector>("Matrix Eigenvalues", 3);
-        matrix->diagonalize(evecs, evals, ascending);
-        psi::outfile->Printf("After diagonalizing\n");
-        matrix->print();
-        evecs->print();
-        evals->print();
-
-        // Compute U(t) D U, where U are the eigenvectors and D has the evals on the diagonal
-        // and (t) means the transpose. This should, yield the original matrix
-        // First, the hard(er) way
-        auto D = std::make_shared<Matrix>("D (Evals on diagonal)", 3, 3);
-        D->set_diagonal(evals);
-        auto DU = std::make_shared<Matrix>("D X U", 3, 3);
-        DU->gemm(false, false, 1.0, D, evecs, 0.0);
-        matrix->gemm(true, false, 1.0, evecs, DU, 0.0);
-        psi::outfile->Printf("Matrix Reconstructed from the evecs/evals (the hard way)\n");
-        matrix->print();
-        // Now the easy way.  If we wanted U D U(t), we would call back_transform instead
-        // Also, D->transform(evecs) would do the same thing, but store the result in D itself.
-        matrix->transform(D, evecs);
-        psi::outfile->Printf("Matrix Reconstructed from the evecs/evals (the easy way)\n");
-        matrix->print();
-
-        // Finally, zero out the matrix
-        matrix->zero();
-        psi::outfile->Printf("After zeroing\n");
-        matrix->print();
-    }
+    einsums::initialize();
 
     // Build an SCF object, and tell it to compute its energy
-    SharedWavefunction scfwfn = std::shared_ptr<Wavefunction>(new EinsumsRKS(ref_wfn, options));
+    SharedWavefunction scfwfn = std::shared_ptr<Wavefunction>(new EinsumsRKS(ref_wfn, static_cast<psi::scf::HF *>(ref_wfn.get())->functional(), options));
     scfwfn->compute_energy();
+
+    einsums::finalize(false);
 
     return scfwfn;
 }
