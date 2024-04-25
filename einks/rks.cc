@@ -248,14 +248,30 @@ double EinsumsRKS::compute_electronic_energy() {
   temp = H_;
   temp += F_;
 
-  einsums::tensor_algebra::einsum(
-      0.0, einsums::tensor_algebra::Indices{}, &e_tens, 1.0,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
-      D_,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
-      temp);
+  for(int i = 0; i < temp.num_blocks(); i++) {
+    if(temp.block_dim(i) == 0) {
+      continue;
+    }
+
+    for(int j = 0; j < temp.block_dim(i); j++) {
+      for(int k = 0; k < temp.block_dim(i); k++) {
+        assert(temp[i](j, k) == H_[i](j, k) + F_[i](j, k));
+      }
+    }
+  }
+
+  double energy = einsums::linear_algebra::dot(D_, temp);
+
+  // einsums::tensor_algebra::einsum(
+  //     0.0, einsums::tensor_algebra::Indices{}, &e_tens, 1.0,
+  //     einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+  //                                      einsums::tensor_algebra::index::j},
+  //     D_,
+  //     einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
+  //                                      einsums::tensor_algebra::index::j},
+  //     temp);
+
+  outfile->Printf("Energy: %lf\n", energy);
 
   double dft_contrib = 0;
 
@@ -267,7 +283,7 @@ double EinsumsRKS::compute_electronic_energy() {
     dft_contrib += v_->quadrature_values()["VV10"];
   }
 
-  return (double)e_tens + dft_contrib + scalar_variable("-D Energy");
+  return energy + dft_contrib + scalar_variable("-D Energy");
 }
 
 void EinsumsRKS::update_Cocc(const einsums::Tensor<double, 1> &energies) {
@@ -421,8 +437,10 @@ double EinsumsRKS::compute_energy() {
   int iter = 1;
   bool converged = false;
   double e_old;
-  double e_new = e_nuc_ + compute_electronic_energy();
+  double electronic_energy = compute_electronic_energy();
+  double e_new = e_nuc_ + electronic_energy;
 
+  outfile->Printf("    Electronic energy from core Hamiltonian guess: %20.16f\n", electronic_energy);
   outfile->Printf("    Energy from core Hamiltonian guess: %20.16f\n\n", e_new);
 
   outfile->Printf(
@@ -475,10 +493,14 @@ double EinsumsRKS::compute_energy() {
       }
       for (int j = 0; j < irrep_sizes_[i]; j++) {
         for (int k = 0; k < irrep_sizes_[i]; k++) {
-          J[i](j, k) = 2 * J_mat[0]->get(i, j, k);
+          J[i](j, k) = J_mat[0]->get(i, j, k);
         }
       }
     }
+
+    J *= 2.0;
+
+    fprintln(*outfile->stream(), J);
 
     F_ += J;
 
@@ -517,6 +539,8 @@ double EinsumsRKS::compute_energy() {
       }
     }
 
+    fprintln(*outfile->stream(), V);
+
     F_ += V;
 
     // Hybrid and LRC stuff.
@@ -533,10 +557,14 @@ double EinsumsRKS::compute_energy() {
         }
         for (int j = 0; j < irrep_sizes_[i]; j++) {
           for (int k = 0; k < irrep_sizes_[i]; k++) {
-            K[i](j, k) = alpha * K_mat[0]->get(i, j, k);
+            K[i](j, k) = K_mat[0]->get(i, j, k);
           }
         }
       }
+
+      K *= alpha;
+
+      fprintln(*outfile->stream(), K);
 
       F_ -= K;
     }
@@ -555,10 +583,14 @@ double EinsumsRKS::compute_energy() {
         }
         for (int j = 0; j < irrep_sizes_[i]; j++) {
           for (int k = 0; k < irrep_sizes_[i]; k++) {
-            wK[i](j, k) = beta * wK_mat[0]->get(i, j, k);
+            wK[i](j, k) = wK_mat[0]->get(i, j, k);
           }
         }
       }
+
+      wK *= beta;
+
+      fprintln(*outfile->stream(), wK);
 
       F_ -= wK;
     }
