@@ -130,6 +130,8 @@ GPUEinsumsSCF::GPUEinsumsSCF(SharedWavefunction ref_wfn, Options &options)
 
     D_.push_block(block);
   }
+
+  print_header();
 }
 
 GPUEinsumsSCF::~GPUEinsumsSCF() {}
@@ -225,31 +227,23 @@ void GPUEinsumsSCF::init_integrals() {
 double GPUEinsumsSCF::compute_electronic_energy() {
   // Compute the electronic energy: (H + F)_pq * D_pq -> energy
 
-  einsums::DeviceTensor<double, 0> *e_tens =
-      new einsums::DeviceTensor<double, 0>();
-  auto *temp = new einsums::BlockDeviceTensor<double, 2>(
+  einsums::DeviceTensor<double, 0> e_tens;
+  auto temp = einsums::BlockDeviceTensor<double, 2>(
       "temp", einsums::detail::DEV_ONLY, H_.vector_dims());
 
-  *temp = H_;
-  *temp += F_;
+  temp = H_;
+  temp += F_;
 
   einsums::tensor_algebra::einsum(
-      0.0, einsums::tensor_algebra::Indices{}, e_tens, 1.0,
+      0.0, einsums::tensor_algebra::Indices{}, &e_tens, 1.0,
       einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
                                        einsums::tensor_algebra::index::j},
       D_,
       einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
                                        einsums::tensor_algebra::index::j},
-      *temp);
+      temp);
 
-#pragma omp taskwait depend(in : *e_tens)
-
-  double out = (double)*e_tens;
-
-  delete e_tens;
-  delete temp;
-
-  return out;
+  return (double)e_tens;
 }
 
 void GPUEinsumsSCF::update_Cocc(
@@ -283,6 +277,7 @@ void GPUEinsumsSCF::update_Cocc(
 
   Cocc_.zero();
 
+#pragma omp parallel for
   for (int i = 0; i < nirrep_; i++) {
     Cocc_[i](einsums::AllT{}, einsums::Range(0, occ_per_irrep_[i])) =
         C_[i](einsums::AllT{}, einsums::Range(0, occ_per_irrep_[i]));
@@ -343,12 +338,8 @@ void GPUEinsumsSCF::compute_diis_fock(
 
   out->zero();
 
-  einsums::gpu::all_stream_wait();
-
   for (int i = 0; i < coefs.size(); i++) {
     einsums::linear_algebra::axpy(coefs[i], focks[i], out);
-
-    einsums::gpu::all_stream_wait();
   }
 }
 
@@ -534,13 +525,9 @@ double GPUEinsumsSCF::compute_energy() {
       }
       focks->push_back(F_);
 
-      einsums::gpu::all_stream_wait();
-
       compute_diis_coefs(*errors, coefs);
 
       compute_diis_fock(*coefs, *focks, &F_);
-
-      einsums::gpu::all_stream_wait();
     }
 
     einsums::tensor_algebra::einsum(
@@ -691,6 +678,47 @@ double GPUEinsumsSCF::compute_energy() {
   energy_ = e_new;
 
   return e_new;
+}
+
+void GPUEinsumsSCF::print_header() {
+  int nthread = 1;
+#ifdef _OPENMP
+    nthread = Process::environment.get_n_threads();
+#endif
+
+    outfile->Printf("\n");
+    outfile->Printf("         ---------------------------------------------------------\n");
+    outfile->Printf("                                   Einsums SCF\n");
+    outfile->Printf("                                by Connor Briggs\n");
+    outfile->Printf("                             %4s Reference\n", options_.get_str("REFERENCE").c_str());
+    outfile->Printf("                               Running on the GPU\n");
+    outfile->Printf("                      %3d Threads, %6ld MiB Core\n", nthread, memory_ / 1048576L);
+    outfile->Printf("         ---------------------------------------------------------\n");
+    outfile->Printf("\n");
+    outfile->Printf("  ==> Geometry <==\n\n");
+
+    molecule_->print();
+
+   // outfile->Printf("  Running in %s symmetry.\n\n", molecule_->point_group()->symbol().c_str());
+
+    molecule_->print_rotational_constants();
+
+    outfile->Printf("  Nuclear repulsion = %20.15f\n\n", molecule_->nuclear_repulsion_energy({0, 0, 0}));
+    //outfile->Printf("  Charge       = %d\n", charge_);
+    //outfile->Printf("  Multiplicity = %d\n", multiplicity_);
+    //outfile->Printf("  Electrons    = %d\n", nelectron_);
+    outfile->Printf("  Nalpha       = %d\n", nalpha_);
+    outfile->Printf("  Nbeta        = %d\n\n", nbeta_);
+
+    outfile->Printf("  ==> Algorithm <==\n\n");
+    outfile->Printf("  SCF Algorithm Type is %s.\n", options_.get_str("SCF_TYPE").c_str());
+    outfile->Printf("  DIIS %s.\n", options_.get_bool("DIIS") ? "enabled" : "disabled");
+    outfile->Printf("  Energy threshold   = %3.2e\n", options_.get_double("E_CONVERGENCE"));
+    outfile->Printf("  Density threshold  = %3.2e\n", options_.get_double("D_CONVERGENCE"));
+
+    outfile->Printf("  ==> Primary Basis <==\n\n");
+
+    basisset_->print_by_level("outfile", print_);
 }
 } // namespace einhf
 } // namespace psi

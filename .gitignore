@@ -57,3 +57,4 @@ einks/output.dat
 einks/output.log
 einks/__pycache__/*
 einks/CMakeFiles/*
+*.clean

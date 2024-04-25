@@ -55,6 +55,8 @@ class EinsumsSCF : public Wavefunction {
     void compute_diis_coefs(const std::deque<einsums::BlockTensor<double, 2>> &errors, std::vector<double> *out) const;
 
     void compute_diis_fock(const std::vector<double> &coefs, const std::deque<einsums::BlockTensor<double, 2>> &focks, einsums::BlockTensor<double, 2> *out) const;
+
+    void print_header();
   protected:
     /// The amount of information to print to the output file
     int print_;

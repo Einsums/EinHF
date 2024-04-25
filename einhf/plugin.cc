@@ -40,6 +40,7 @@
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/psi4-dec.h"
+#include "psi4/libqt/qt.h"
 
 static std::string to_lower(const std::string &str) {
   std::string out(str);
@@ -77,6 +78,7 @@ extern "C" PSI_API int read_options(std::string name, Options &options) {
 
 extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
                                             Options &options) {
+  timer_on("EinHF");
   if(!outfile) {
     printf("No output file.\n");
   }
@@ -94,6 +96,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
     }
 
     einsums::finalize(true);
+    timer_off("EinHF");
 
     return scfwfn;
   } else if (to_lower(options.get_str("REFERENCE")) == "uhf" &&
@@ -108,6 +111,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
     }
 
     einsums::finalize(true);
+    timer_off("EinHF");
 
     return scfwfn;
   } else if (to_lower(options.get_str("REFERENCE")) == "rhf" &&
@@ -122,6 +126,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
     }
 
     einsums::finalize(true);
+    timer_off("EinHF");
 
     return scfwfn;
   } else {
