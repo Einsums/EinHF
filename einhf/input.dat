@@ -33,7 +33,7 @@ set DIIS TRUE
 set SCF_INITIAL_ACCELERATOR NONE
 set PRINT 1
 set SCF_TYPE PK
-set COMPUTE CPU
+set COMPUTE GPU
 
 E1 = energy("hf")
 

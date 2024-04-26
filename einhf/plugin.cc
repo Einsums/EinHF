@@ -39,6 +39,7 @@
 #include "psi4/libmints/vector.h"
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
+#include "psi4/libpsi4util/process.h"
 #include "psi4/psi4-dec.h"
 #include "psi4/libqt/qt.h"
 
@@ -79,6 +80,9 @@ extern "C" PSI_API int read_options(std::string name, Options &options) {
 extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
                                             Options &options) {
   timer_on("EinHF");
+
+  omp_set_num_threads(Process::environment.get_n_threads());
+
   if(!outfile) {
     printf("No output file.\n");
   }

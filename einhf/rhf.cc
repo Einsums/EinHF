@@ -219,8 +219,20 @@ void EinsumsSCF::init_integrals() {
   }
 
   outfile->Printf("    Forming JK object\n\n");
+  
+  size_t total_memory = Process::environment.get_memory() / 8 * options_.get_double("SCF_MEM_SAFETY_FACTOR");
+
   // Construct a JK object that compute J and K SCF matrices very efficiently
-  jk_ = JK::build_JK(basisset_, mintshelper_->get_basisset("DF_BASIS_SCF"), options_, false, Process::environment.get_memory() * 0.8);
+  jk_ = JK::build_JK(basisset_, mintshelper_->get_basisset("DF_BASIS_SCF"), options_, false, 
+  total_memory);
+
+  size_t jk_size = jk_->memory_estimate();
+
+  if(jk_size < total_memory) {
+    jk_->set_memory(jk_size);
+  } else {
+    jk_->set_memory(total_memory * 0.9);
+  }
 
   // This is a very heavy compute object, lets give it 80% of our total memory
   //jk_->set_memory(Process::environment.get_memory() * 0.8);
@@ -708,10 +720,7 @@ double EinsumsSCF::compute_energy() {
 }
 
 void EinsumsSCF::print_header() {
-  int nthread = 1;
-#ifdef _OPENMP
-    nthread = Process::environment.get_n_threads();
-#endif
+  int nthread = Process::environment.get_n_threads();
 
     outfile->Printf("\n");
     outfile->Printf("         ---------------------------------------------------------\n");

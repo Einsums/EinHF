@@ -223,11 +223,26 @@ void EinsumsRKS::init_integrals() {
 
   // func_->set_deriv(1);
 
+  size_t total_memory = Process::environment.get_memory() / 8 * options_.get_double("SCF_MEM_SAFETY_FACTOR");
+
   // Construct a JK object that compute J and K SCF matrices very efficiently
-  jk_ = JK::build_JK(basisset_, mintshelper_->get_basisset("DF_BASIS_SCF"),
-                     options_, false, Process::environment.get_memory() * 0.8);
+  jk_ = JK::build_JK(basisset_, mintshelper_->get_basisset("DF_BASIS_SCF"), options_, func_->is_x_lrc(), 
+  total_memory);
+
+  size_t jk_size = jk_->memory_estimate();
+
+  if(jk_size < total_memory) {
+    jk_->set_memory(jk_size);
+  } else {
+    jk_->set_memory(total_memory * 0.9);
+  }
+
   jk_->set_do_K(func_->is_x_hybrid());
   jk_->set_do_wK(func_->is_x_lrc());
+
+  jk_->set_omega(func_->x_omega());
+  jk_->set_omega_alpha(func_->x_alpha());
+  jk_->set_omega_beta(func_->x_beta());
 
   // This is a very heavy compute object, lets give it 80% of our total memory
   // jk_->set_memory(Process::environment.get_memory() * 0.8);
