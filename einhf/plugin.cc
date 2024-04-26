@@ -28,11 +28,12 @@
  * @END LICENSE
  */
 
-#include "uhf.h"
 #include "rhf.h"
+#include "uhf.h"
 
 #ifdef __HIP__
 #include "rhf-gpu.h"
+#include "uhf-gpu.h"
 #endif
 
 #include "psi4/libmints/matrix.h"
@@ -40,8 +41,8 @@
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
-#include "psi4/psi4-dec.h"
 #include "psi4/libqt/qt.h"
+#include "psi4/psi4-dec.h"
 
 static std::string to_lower(const std::string &str) {
   std::string out(str);
@@ -83,7 +84,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
 
   omp_set_num_threads(Process::environment.get_n_threads());
 
-  if(!outfile) {
+  if (!outfile) {
     printf("No output file.\n");
   }
   outfile->Printf("Initializing Einsums.\n");
@@ -123,6 +124,21 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
     // Build an SCF object, and tell it to compute its energy
     SharedWavefunction scfwfn =
         std::shared_ptr<Wavefunction>(new GPUEinsumsSCF(ref_wfn, options));
+#pragma omp parallel
+    {
+#pragma omp single
+      { scfwfn->compute_energy(); }
+    }
+
+    einsums::finalize(true);
+    timer_off("EinHF");
+
+    return scfwfn;
+  } else if (to_lower(options.get_str("REFERENCE")) == "uhf" &&
+             to_lower(options.get_str("COMPUTE")) == "gpu") {
+    // Build an SCF object, and tell it to compute its energy
+    SharedWavefunction scfwfn =
+        std::shared_ptr<Wavefunction>(new GPUEinsumsUHF(ref_wfn, options));
 #pragma omp parallel
     {
 #pragma omp single

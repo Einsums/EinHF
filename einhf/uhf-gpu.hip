@@ -28,7 +28,7 @@
  * @END LICENSE
  */
 
-#include "uhf.h"
+#include "uhf-gpu.h"
 
 #include "einsums.hpp"
 
@@ -56,7 +56,7 @@ static std::string to_lower(const std::string &str) {
 namespace psi {
 namespace einhf {
 
-EinsumsUHF::EinsumsUHF(SharedWavefunction ref_wfn, Options &options)
+GPUEinsumsUHF::GPUEinsumsUHF(SharedWavefunction ref_wfn, Options &options)
     : Wavefunction(options) {
 
   timer_on("Setup Wavefunction");
@@ -97,50 +97,61 @@ EinsumsUHF::EinsumsUHF(SharedWavefunction ref_wfn, Options &options)
   Db_.set_name("Beta Density Matrix");
 
   for (int i = 0; i < this->nirrep_; i++) {
-    X_.push_block(einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
-                                             irrep_sizes_[i], irrep_sizes_[i]));
+    X_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
   }
 
   for (int i = 0; i < this->nirrep_; i++) {
-    Fa_.push_block(einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
-    Fb_.push_block(einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
+    Fa_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
+    Fb_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
   }
 
   for (int i = 0; i < this->nirrep_; i++) {
-    Fta_.push_block(einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
-    Ftb_.push_block(einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
+    Fta_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
+    Ftb_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
   }
 
   for (int i = 0; i < this->nirrep_; i++) {
-    Ca_.push_block(einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
-    Cb_.push_block(einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
+    Ca_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
+    Cb_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
   }
 
   for (int i = 0; i < this->nirrep_; i++) {
-    Cocca_.push_block(einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
-    Coccb_.push_block(einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
+    Cocca_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
+    Coccb_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
   }
 
   for (int i = 0; i < this->nirrep_; i++) {
-    Da_.push_block(einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
-    Db_.push_block(einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
+    Da_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
+    Db_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
   }
   timer_off("Setup Wavefunction");
 }
 
-EinsumsUHF::~EinsumsUHF() {}
+GPUEinsumsUHF::~GPUEinsumsUHF() {}
 
-void EinsumsUHF::init_integrals() {
+void GPUEinsumsUHF::init_integrals() {
   // The basisset object contains all of the basis information and is formed in
   // the new_wavefunction call The integral factory oversees the creation of
   // integral objects
@@ -194,29 +205,19 @@ void EinsumsUHF::init_integrals() {
 
   for (int i = 0; i < S_mat->nirrep(); i++) {
     irrep_sizes_.push_back(S_mat->rowdim(i));
-    auto S_block = einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), S_mat->rowdim(i), S_mat->coldim(i));
+    S_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        S_mat->rowdim(i), S_mat->coldim(i)));
 
-    for (int j = 0; j < S_mat->rowdim(i); j++) {
-      for (int k = 0; k < S_mat->coldim(i); k++) {
-        S_block(j, k) = S_mat->get(i, j, k);
-      }
-    }
-
-    S_.push_block(S_block);
+    S_[i].read(S_mat->get_pointer(i));
   }
 
   for (int i = 0; i < S_mat->nirrep(); i++) {
-    auto H_block = einsums::Tensor<double, 2>(
-        molecule_->irrep_labels().at(i), H_mat->rowdim(i), H_mat->coldim(i));
+    H_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        S_mat->rowdim(i), S_mat->coldim(i)));
 
-    for (int j = 0; j < H_mat->rowdim(i); j++) {
-      for (int k = 0; k < H_mat->coldim(i); k++) {
-        H_block(j, k) = H_mat->get(i, j, k);
-      }
-    }
-
-    H_.push_block(H_block);
+    H_[i].read(H_mat->get_pointer(i));
   }
 
   if (print_ > 3) {
@@ -226,7 +227,7 @@ void EinsumsUHF::init_integrals() {
   }
 
   outfile->Printf("    Forming JK object\n\n");
-  
+
   size_t total_memory = Process::environment.get_memory() / 8 *
                         options_.get_double("SCF_MEM_SAFETY_FACTOR");
 
@@ -246,13 +247,14 @@ void EinsumsUHF::init_integrals() {
   jk_->print_header();
 }
 
-double EinsumsUHF::compute_electronic_energy(
-    const einsums::BlockTensor<double, 2> &F,
-    const einsums::BlockTensor<double, 2> &D) {
+double GPUEinsumsUHF::compute_electronic_energy(
+    const einsums::BlockDeviceTensor<double, 2> &F,
+    const einsums::BlockDeviceTensor<double, 2> &D) {
   // Compute the electronic energy: (H + F)_pq * D_pq -> energy
 
-  einsums::Tensor<double, 0> e_tens;
-  auto temp = einsums::BlockTensor<double, 2>("temp", H_.vector_dims());
+  einsums::DeviceTensor<double, 0> e_tens;
+  auto temp = einsums::BlockDeviceTensor<double, 2>(
+      "temp", einsums::detail::DEV_ONLY, H_.vector_dims());
 
   temp = H_;
   temp += F;
@@ -268,8 +270,9 @@ double EinsumsUHF::compute_electronic_energy(
   return (double)e_tens;
 }
 
-void EinsumsUHF::update_Cocc(const einsums::Tensor<double, 1> &alpha_energies,
-                             const einsums::Tensor<double, 1> &beta_energies) {
+void GPUEinsumsUHF::update_Cocc(
+    const einsums::DeviceTensor<double, 1> &alpha_energies,
+    const einsums::DeviceTensor<double, 1> &beta_energies) {
   // Update occupation.
 
   for (int i = 0; i < nirrep_; i++) {
@@ -336,8 +339,8 @@ void EinsumsUHF::update_Cocc(const einsums::Tensor<double, 1> &alpha_energies,
   }
 }
 
-void EinsumsUHF::compute_diis_coefs(
-    const std::deque<einsums::BlockTensor<double, 2>> &errors,
+void GPUEinsumsUHF::compute_diis_coefs(
+    const std::deque<einsums::BlockDeviceTensor<double, 2>> &errors,
     std::vector<double> *out) const {
   einsums::Tensor<double, 2> *B_mat = new einsums::Tensor<double, 2>(
       "DIIS error matrix", errors.size() + 1, errors.size() + 1);
@@ -374,10 +377,10 @@ void EinsumsUHF::compute_diis_coefs(
   }
 }
 
-void EinsumsUHF::compute_diis_fock(
+void GPUEinsumsUHF::compute_diis_fock(
     const std::vector<double> &coefs,
-    const std::deque<einsums::BlockTensor<double, 2>> &focks,
-    einsums::BlockTensor<double, 2> *out) const {
+    const std::deque<einsums::BlockDeviceTensor<double, 2>> &focks,
+    einsums::BlockDeviceTensor<double, 2> *out) const {
 
   out->zero();
 
@@ -386,7 +389,7 @@ void EinsumsUHF::compute_diis_fock(
   }
 }
 
-double EinsumsUHF::compute_energy() {
+double GPUEinsumsUHF::compute_energy() {
   if (diis_max_iters_ != 0) {
     outfile->Printf("Performing DIIS with %d vectors.\n", diis_max_iters_);
   } else {
@@ -394,30 +397,36 @@ double EinsumsUHF::compute_energy() {
   }
 
   // Allocate a few temporary matrices
-  auto Temp1a = new einsums::BlockTensor<double, 2>("Alpha Temporary Array 1",
-                                                    irrep_sizes_);
-  auto Temp2a = new einsums::BlockTensor<double, 2>("Alpha Temporary Array 2",
-                                                    irrep_sizes_);
-  auto Temp1b = new einsums::BlockTensor<double, 2>("Beta Temporary Array 1",
-                                                    irrep_sizes_);
-  auto Temp2b = new einsums::BlockTensor<double, 2>("Beta Temporary Array 2",
-                                                    irrep_sizes_);
-  auto FDSa = new einsums::BlockTensor<double, 2>("Alpha FDS", irrep_sizes_);
-  auto SDFa = new einsums::BlockTensor<double, 2>("Alpha SDF", irrep_sizes_);
-  auto FDSb = new einsums::BlockTensor<double, 2>("Beta FDS", irrep_sizes_);
-  auto SDFb = new einsums::BlockTensor<double, 2>("Beta SDF", irrep_sizes_);
-  auto Evecsa =
-      new einsums::BlockTensor<double, 2>("AlphaEigenvectors", irrep_sizes_);
-  auto Evalsa = new einsums::Tensor<double, 1>("AlphaEigenvalues", nso_);
-  auto Evecsb =
-      new einsums::BlockTensor<double, 2>("BetaEigenvectors", irrep_sizes_);
-  auto Evalsb = new einsums::Tensor<double, 1>("BetaEigenvalues", nso_);
+  auto Temp1a = new einsums::BlockDeviceTensor<double, 2>(
+      "Alpha Temporary Array 1", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Temp2a = new einsums::BlockDeviceTensor<double, 2>(
+      "Alpha Temporary Array 2", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Temp1b = new einsums::BlockDeviceTensor<double, 2>(
+      "Beta Temporary Array 1", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Temp2b = new einsums::BlockDeviceTensor<double, 2>(
+      "Beta Temporary Array 2", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto FDSa = new einsums::BlockDeviceTensor<double, 2>(
+      "Alpha FDS", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto SDFa = new einsums::BlockDeviceTensor<double, 2>(
+      "Alpha SDF", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto FDSb = new einsums::BlockDeviceTensor<double, 2>(
+      "Beta FDS", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto SDFb = new einsums::BlockDeviceTensor<double, 2>(
+      "Beta SDF", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Evecsa = new einsums::BlockDeviceTensor<double, 2>(
+      "AlphaEigenvectors", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Evalsa = new einsums::DeviceTensor<double, 1>(
+      "AlphaEigenvalues", einsums::detail::DEV_ONLY, nso_);
+  auto Evecsb = new einsums::BlockDeviceTensor<double, 2>(
+      "BetaEigenvectors", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Evalsb = new einsums::DeviceTensor<double, 1>(
+      "BetaEigenvalues", einsums::detail::DEV_ONLY, nso_);
 
-  std::deque<einsums::BlockTensor<double, 2>>
-      *errorsa = new std::deque<einsums::BlockTensor<double, 2>>(0),
-      *errorsb = new std::deque<einsums::BlockTensor<double, 2>>(0),
-      *focksa = new std::deque<einsums::BlockTensor<double, 2>>(0),
-      *focksb = new std::deque<einsums::BlockTensor<double, 2>>(0);
+  std::deque<einsums::BlockDeviceTensor<double, 2>>
+      *errorsa = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0),
+      *errorsb = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0),
+      *focksa = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0),
+      *focksb = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0);
   std::vector<double> *coefsa = new std::vector<double>(0),
                       *coefsb = new std::vector<double>(0);
 
@@ -621,15 +630,15 @@ double EinsumsUHF::compute_energy() {
     const std::vector<SharedMatrix> &K_mat = jk_->K();
 
     // Proceed as normal
-    auto Ja =
-        new einsums::BlockTensor<double, 2>("Alpha J matrix", irrep_sizes_);
-    auto Ka =
-        new einsums::BlockTensor<double, 2>("Alpha K matrix", irrep_sizes_);
+    auto Ja = new einsums::BlockDeviceTensor<double, 2>(
+        "Alpha J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
+    auto Ka = new einsums::BlockDeviceTensor<double, 2>(
+        "Alpha K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
 
-    auto Jb =
-        new einsums::BlockTensor<double, 2>("Beta J matrix", irrep_sizes_);
-    auto Kb =
-        new einsums::BlockTensor<double, 2>("Beta K matrix", irrep_sizes_);
+    auto Jb = new einsums::BlockDeviceTensor<double, 2>(
+        "Beta J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
+    auto Kb = new einsums::BlockDeviceTensor<double, 2>(
+        "Beta K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
 
 #pragma omp task depend(out : *Ja)
     {
@@ -637,11 +646,7 @@ double EinsumsUHF::compute_energy() {
         if (irrep_sizes_[i] == 0) {
           continue;
         }
-        for (int j = 0; j < irrep_sizes_[i]; j++) {
-          for (int k = 0; k < irrep_sizes_[i]; k++) {
-            (*Ja)[i](j, k) = J_mat[0]->get(i, j, k);
-          }
-        }
+        Ja->block(i).read(J_mat[0]->get_pointer(i));
       }
     }
 
@@ -651,11 +656,7 @@ double EinsumsUHF::compute_energy() {
         if (irrep_sizes_[i] == 0) {
           continue;
         }
-        for (int j = 0; j < irrep_sizes_[i]; j++) {
-          for (int k = 0; k < irrep_sizes_[i]; k++) {
-            (*Jb)[i](j, k) = J_mat[1]->get(i, j, k);
-          }
-        }
+        Jb->block(i).read(J_mat[1]->get_pointer(i));
       }
     }
 
@@ -665,11 +666,7 @@ double EinsumsUHF::compute_energy() {
         if (irrep_sizes_[i] == 0) {
           continue;
         }
-        for (int j = 0; j < irrep_sizes_[i]; j++) {
-          for (int k = 0; k < irrep_sizes_[i]; k++) {
-            (*Ka)[i](j, k) = K_mat[0]->get(i, j, k);
-          }
-        }
+        Ka->block(i).read(K_mat[0]->get_pointer(i));
       }
     }
 
@@ -679,11 +676,7 @@ double EinsumsUHF::compute_energy() {
         if (irrep_sizes_[i] == 0) {
           continue;
         }
-        for (int j = 0; j < irrep_sizes_[i]; j++) {
-          for (int k = 0; k < irrep_sizes_[i]; k++) {
-            (*Kb)[i](j, k) = K_mat[1]->get(i, j, k);
-          }
-        }
+        Kb->block(i).read(K_mat[1]->get_pointer(i));
       }
     }
 
@@ -795,8 +788,10 @@ double EinsumsUHF::compute_energy() {
     }
 
     // Density RMS
-    einsums::Tensor<double, 0> *dRMS_tensa = new einsums::Tensor<double, 0>(),
-                               *dRMS_tensb = new einsums::Tensor<double, 0>();
+    einsums::DeviceTensor<double, 0> *dRMS_tensa =
+                                         new einsums::DeviceTensor<double, 0>(),
+                                     *dRMS_tensb =
+                                         new einsums::DeviceTensor<double, 0>();
     *dRMS_tensa = 0;
     *dRMS_tensb = 0;
 
@@ -926,7 +921,7 @@ double EinsumsUHF::compute_energy() {
       timer_off("Form Db");
     }
 
-        // Optional printing
+    // Optional printing
     if (print_ > 3) {
 #pragma omp taskwait
       fprintln(*outfile->stream(), Fta_);
@@ -961,7 +956,7 @@ double EinsumsUHF::compute_energy() {
     throw PSIEXCEPTION("The SCF iterations did not converge.");
 
   // Compute S^2.
-  einsums::Tensor<double, 0> spin;
+  einsums::DeviceTensor<double, 0> spin;
 
   einsums::tensor_algebra::einsum(
       0.0, einsums::tensor_algebra::Indices{}, &spin, 0.5,
@@ -1111,7 +1106,7 @@ double EinsumsUHF::compute_energy() {
 
   return e_new;
 }
-void EinsumsUHF::print_header() {
+void GPUEinsumsUHF::print_header() {
   int nthread = Process::environment.get_n_threads();
 
   outfile->Printf("\n");
@@ -1121,7 +1116,7 @@ void EinsumsUHF::print_header() {
   outfile->Printf("                                by Connor Briggs\n");
   outfile->Printf("                                 %4s Reference\n",
                   options_.get_str("REFERENCE").c_str());
-  outfile->Printf("                               Running on the CPU\n");
+  outfile->Printf("                               Running on the GPU\n");
   outfile->Printf("                      %3d Threads, %6ld MiB Core\n", nthread,
                   memory_ / 1048576L);
   outfile->Printf(

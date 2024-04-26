@@ -6,7 +6,8 @@ import einhf
 
 memory 12 GB
 
-set reference rhf
+set reference uhf
+
 
 molecule benzene {
       C  -1.4048687738   0.0000000000   0.0000000000
@@ -21,7 +22,6 @@ molecule benzene {
 	    H   1.2499038739  -2.1648994052   0.0000000000
 	    H   2.4998103593  -0.0000000000   0.0000000000
 	    H   1.2499038739   2.1648994052   0.0000000000
-
 }
 
 set {
@@ -35,7 +35,9 @@ set PRINT 1
 set SCF_TYPE PK
 set COMPUTE GPU
 
+psi4.core.timer_on("Psi4 HF")
 E1 = energy("hf")
+psi4.core.timer_off("Psi4 HF")
 
 E2 = energy('einhf')
 

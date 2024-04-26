@@ -43,23 +43,23 @@ class JK;
 
 namespace einhf {
 
-class EinsumsUHF : public Wavefunction {
+class GPUEinsumsUHF : public Wavefunction {
 public:
   /// The constuctor
-  EinsumsUHF(SharedWavefunction ref_wfn, Options &options);
+  GPUEinsumsUHF(SharedWavefunction ref_wfn, Options &options);
   /// The destuctor
-  ~EinsumsUHF();
+  ~GPUEinsumsUHF();
   /// Computes the SCF energy, and returns it
   double compute_energy();
 
   void
-  compute_diis_coefs(const std::deque<einsums::BlockTensor<double, 2>> &errors,
+  compute_diis_coefs(const std::deque<einsums::BlockDeviceTensor<double, 2>> &errors,
                      std::vector<double> *out) const;
 
   void
   compute_diis_fock(const std::vector<double> &coefs,
-                    const std::deque<einsums::BlockTensor<double, 2>> &focks,
-                    einsums::BlockTensor<double, 2> *out) const;
+                    const std::deque<einsums::BlockDeviceTensor<double, 2>> &focks,
+                    einsums::BlockDeviceTensor<double, 2> *out) const;
 
   void print_header();
 
@@ -88,30 +88,30 @@ protected:
   /// The convergence criterion for the energy
   double e_convergence_;
   /// The one electron integrals
-  einsums::BlockTensor<double, 2> H_;
+  einsums::BlockDeviceTensor<double, 2> H_;
   /// The overlap matrix
-  einsums::BlockTensor<double, 2> S_;
+  einsums::BlockDeviceTensor<double, 2> S_;
   /// The inverse square root of the overlap matrix
-  einsums::BlockTensor<double, 2> X_;
+  einsums::BlockDeviceTensor<double, 2> X_;
   /// The Fock Matrix
-  einsums::BlockTensor<double, 2> Fa_, Fb_;
+  einsums::BlockDeviceTensor<double, 2> Fa_, Fb_;
   /// The transformed Fock matrix
-  einsums::BlockTensor<double, 2> Fta_, Ftb_;
+  einsums::BlockDeviceTensor<double, 2> Fta_, Ftb_;
   /// The MO coefficients
-  einsums::BlockTensor<double, 2> Ca_, Cb_;
+  einsums::BlockDeviceTensor<double, 2> Ca_, Cb_;
   /// The occupied MO coefficients
-  einsums::BlockTensor<double, 2> Cocca_, Coccb_;
+  einsums::BlockDeviceTensor<double, 2> Cocca_, Coccb_;
   /// The density matrix
-  einsums::BlockTensor<double, 2> Da_, Db_;
+  einsums::BlockDeviceTensor<double, 2> Da_, Db_;
   /// The ubiquitous JK object
   std::shared_ptr<JK> jk_;
   /// Computes the electronic part of the SCF energy, and returns it
-  double compute_electronic_energy(const einsums::BlockTensor<double, 2> &F, const einsums::BlockTensor<double, 2> &D);
+  double compute_electronic_energy(const einsums::BlockDeviceTensor<double, 2> &F, const einsums::BlockDeviceTensor<double, 2> &D);
   /// Sets up the integrals object
   void init_integrals();
   /// Updates the occupied MO coefficients
-  void update_Cocc(const einsums::Tensor<double, 1> &alpha_energies,
-                    const einsums::Tensor<double, 1> &beta_energies);
+  void update_Cocc(const einsums::DeviceTensor<double, 1> &alpha_energies,
+                    const einsums::DeviceTensor<double, 1> &beta_energies);
 };
 } // namespace einhf
 } // namespace psi

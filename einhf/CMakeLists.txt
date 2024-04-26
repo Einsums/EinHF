@@ -69,7 +69,7 @@ if(BUILD_GPU)
         set(CURSES_NEED_NCURSES True)
         find_package(Curses)
 
-add_psi4_plugin(einhf plugin.cc rhf.cc rhf-gpu.hip uhf.cc)
+add_psi4_plugin(einhf plugin.cc rhf.cc rhf-gpu.hip uhf.cc uhf-gpu.hip)
 else()
 add_psi4_plugin(einhf plugin.cc rhf.cc uhf.cc)
 endif()
