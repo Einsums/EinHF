@@ -209,7 +209,9 @@ void GPUEinsumsUHF::init_integrals() {
         molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
         S_mat->rowdim(i), S_mat->coldim(i)));
 
-    S_[i].read(S_mat->get_pointer(i));
+    if (irrep_sizes_[i] != 0) {
+      S_[i].read(S_mat->get_pointer(i));
+    }
   }
 
   for (int i = 0; i < S_mat->nirrep(); i++) {
@@ -217,7 +219,9 @@ void GPUEinsumsUHF::init_integrals() {
         molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
         S_mat->rowdim(i), S_mat->coldim(i)));
 
-    H_[i].read(H_mat->get_pointer(i));
+    if (irrep_sizes_[i] != 0) {
+      H_[i].read(H_mat->get_pointer(i));
+    }
   }
 
   if (print_ > 3) {
