@@ -1,7 +1,7 @@
 #
 # @BEGIN LICENSE
 #
-# einhf by Psi4 Developer, a plugin to:
+# einks by Psi4 Developer, a plugin to:
 #
 # Psi4: an open-source quantum chemistry software package
 #
@@ -30,10 +30,11 @@
 
 cmake_minimum_required(VERSION 3.15 FATAL_ERROR)
 
-project(einhf CXX)
+project(einks CXX)
 
 find_package(psi4 REQUIRED)
 find_package(Einsums REQUIRED)
+find_package(pybind11 REQUIRED)
 
 option(BUILD_GPU "Whether to build the GPU plugin." OFF)
 
@@ -69,14 +70,14 @@ if(BUILD_GPU)
         set(CURSES_NEED_NCURSES True)
         find_package(Curses)
 
-add_psi4_plugin(einhf plugin.cc rhf.cc rhf-gpu.hip uhf.cc uhf-gpu.hip)
+add_psi4_plugin(einks plugin.cc rks.cc)
 else()
-add_psi4_plugin(einhf plugin.cc rhf.cc uhf.cc)
+add_psi4_plugin(einks plugin.cc rks.cc)
 endif()
 
-target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,Clang>:-O0 -gdwarf-4 -ggdb -g3>>)
-target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:HIP,Clang>:-O0 -gdwarf-4 -g3 -ggdb>>)
-target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Og -g3>>)
+target_compile_options(einks BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,Clang>:-O0 -gdwarf-4 -ggdb -g3>>)
+target_compile_options(einks BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:HIP,Clang>:-O0 -gdwarf-4 -g3 -ggdb>>)
+target_compile_options(einks BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Og -g3>>)
 
-target_link_libraries(einhf PUBLIC Einsums::einsums)
-target_include_directories(einhf PUBLIC ${Einsums_INCLUDE_DIRS})
+target_link_libraries(einks PUBLIC Einsums::einsums)
+target_include_directories(einks PUBLIC ${Einsums_INCLUDE_DIRS})

@@ -1,0 +1,32 @@
+
+# PYTHONPATH must include directory above plugin directory.
+#     Define either externally or here, then import plugin.
+sys.path.insert(0, './..')
+import einks
+
+molecule {
+O
+H 1 R
+H 1 R 2 A
+
+R = .9
+A = 104.5
+}
+
+set {
+  basis sto-3g
+}
+
+set GUESS CORE
+set DIIS FALSE
+set SCF_INITIAL_ACCELERATOR NONE
+set PRINT 4
+#set COMPUTE CPU
+
+E2 = energy('pbe')
+
+E1 = energy('einks', dft_functional="pbe")
+
+assert(abs(E1 - E2) < 1e-8)
+
+einks.exampleFN()

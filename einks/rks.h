@@ -1,7 +1,7 @@
 /*
  * @BEGIN LICENSE
  *
- * einhf by Psi4 Developer, a plugin to:
+ * einks by Psi4 Developer, a plugin to:
  *
  * Psi4: an open-source quantum chemistry software package
  *
@@ -35,24 +35,26 @@
 #include "psi4/psi4-dec.h"
 #include "psi4/libmints/wavefunction.h"
 #include "psi4/libmints/matrix.h"
+#include "psi4/libfock/v.h"
+#include "psi4/libfunctional/superfunctional.h"
 
 namespace psi{
     // Forward declare several variables
     class Options;
     class JK;
 
-namespace einhf{
+namespace einks{
 
-class EinsumsSCF : public Wavefunction {
+class EinsumsRKS : public Wavefunction {
   public:
     /// The constuctor
-    EinsumsSCF(SharedWavefunction ref_wfn, Options &options);
+    EinsumsRKS(SharedWavefunction ref_wfn, const std::shared_ptr<SuperFunctional> &functional, Options &options);
     /// The destuctor
-    ~EinsumsSCF();
+    ~EinsumsRKS();
     /// Computes the SCF energy, and returns it
     double compute_energy();
 
-    void compute_diis_coefs(const std::deque<einsums::BlockTensor<double, 2>> &errors, std::vector<double> *out) const;
+  void compute_diis_coefs(const std::deque<einsums::BlockTensor<double, 2>> &errors, std::vector<double> *out) const;
 
     void compute_diis_fock(const std::vector<double> &coefs, const std::deque<einsums::BlockTensor<double, 2>> &focks, einsums::BlockTensor<double, 2> *out) const;
   protected:
@@ -96,6 +98,10 @@ class EinsumsSCF : public Wavefunction {
     einsums::BlockTensor<double, 2> D_;
     /// The ubiquitous JK object
     std::shared_ptr<JK> jk_;
+    /// The functional.
+    std::shared_ptr<SuperFunctional> func_;
+    /// The functional exchange integrator.
+    std::shared_ptr<VBase> v_;
     /// Computes the electronic part of the SCF energy, and returns it
     double compute_electronic_energy();
     /// Sets up the integrals object

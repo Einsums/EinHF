@@ -49,3 +49,13 @@ einhf/timer.dat
 timer.dat
 einhf/output2.dat
 .vscode/settings.json
+einhf/output-diis.dat
+einks/cmake_install.cmake
+einks/CMakeCache.txt
+einks/Makefile
+einks/output.dat
+einks/output.log
+einks/__pycache__/*
+einks/CMakeFiles/*
+*.clean
+einhf/valgrind.txt
