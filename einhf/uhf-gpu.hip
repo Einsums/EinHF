@@ -205,23 +205,23 @@ void GPUEinsumsUHF::init_integrals() {
 
   for (int i = 0; i < S_mat->nirrep(); i++) {
     irrep_sizes_.push_back(S_mat->rowdim(i));
-    S_.push_block(einsums::DeviceTensor<double, 2>(
+    auto S_block = einsums::DeviceTensor<double, 2>(
         molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
-        S_mat->rowdim(i), S_mat->coldim(i)));
+        S_mat->rowdim(i), S_mat->coldim(i));
 
-    if (irrep_sizes_[i] != 0) {
-      S_[i].read(S_mat->get_pointer(i));
-    }
+    S_block.read(S_mat->get_pointer(i));
+
+    S_.push_block(S_block);
   }
 
   for (int i = 0; i < S_mat->nirrep(); i++) {
-    H_.push_block(einsums::DeviceTensor<double, 2>(
+    auto H_block = einsums::DeviceTensor<double, 2>(
         molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
-        S_mat->rowdim(i), S_mat->coldim(i)));
+        H_mat->rowdim(i), H_mat->coldim(i));
 
-    if (irrep_sizes_[i] != 0) {
-      H_[i].read(H_mat->get_pointer(i));
-    }
+    H_block.read(H_mat->get_pointer(i));
+
+    H_.push_block(H_block);
   }
 
   if (print_ > 3) {
@@ -426,13 +426,33 @@ double GPUEinsumsUHF::compute_energy() {
   auto Evalsb = new einsums::DeviceTensor<double, 1>(
       "BetaEigenvalues", einsums::detail::DEV_ONLY, nso_);
 
+  auto Ja = new einsums::BlockDeviceTensor<double, 2>(
+      "Alpha J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Ka = new einsums::BlockDeviceTensor<double, 2>(
+      "Alpha K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
+
+  auto Jb = new einsums::BlockDeviceTensor<double, 2>(
+      "Beta J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Kb = new einsums::BlockDeviceTensor<double, 2>(
+      "Beta K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
+
   std::deque<einsums::BlockDeviceTensor<double, 2>>
       *errorsa = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0),
       *errorsb = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0),
       *focksa = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0),
       *focksb = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0);
   std::vector<double> *coefsa = new std::vector<double>(0),
-                      *coefsb = new std::vector<double>(0);
+                      *coefsb = new std::vector<double>(0),
+                      *error_valsa = new std::vector<double>(0),
+                      *error_valsb = new std::vector<double>(0);
+
+  std::vector<int> old_occsa, old_occsb;
+
+  einsums::DeviceTensor<double, 0> *dRMS_tensa =
+                                       new einsums::DeviceTensor<double, 0>(),
+                                   *dRMS_tensb =
+                                       new einsums::DeviceTensor<double, 0>();
+  double *elec_a = new double(), *elec_b = new double();
 
 // Form the X_ matrix (S^-1/2)
 #pragma omp task depend(in : this->S_) depend(out : this -> X_)
@@ -543,7 +563,6 @@ double GPUEinsumsUHF::compute_energy() {
   int iter = 1;
   bool converged = false;
   double e_old;
-  double *elec_a = new double(), *elec_b = new double();
   double e_new = e_nuc_;
 
   timer_on("Compute electronic energy");
@@ -559,6 +578,39 @@ double GPUEinsumsUHF::compute_energy() {
   timer_off("Compute electronic energy");
 
   outfile->Printf("    Energy from core Hamiltonian guess: %20.16f\n\n", e_new);
+
+  old_occsa = aocc_per_irrep_;
+  old_occsb = bocc_per_irrep_;
+
+  outfile->Printf("    Initial Occupation:\n         \t");
+
+  for (int i = 0; i < S_.num_blocks(); i++) {
+    outfile->Printf("%4s\t", S_.name(i).c_str());
+  }
+
+  outfile->Printf("\n    AOCC \t");
+  for (int i = 0; i < aocc_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", aocc_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    BOCC \t");
+  for (int i = 0; i < bocc_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", bocc_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    VIRT \t");
+
+  for (int i = 0; i < aocc_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i] - aocc_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    Total\t");
+
+  for (int i = 0; i < aocc_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i]);
+  }
+
+  outfile->Printf("\n");
 
   outfile->Printf(
       "    *===========================================================*\n");
@@ -592,9 +644,9 @@ double GPUEinsumsUHF::compute_energy() {
     Cl.clear();
 
     SharedMatrix CTempa = std::make_shared<Matrix>(nirrep_, irrep_sizes_.data(),
-                                                   irrep_sizes_.data());
+                                                   aocc_per_irrep_.data());
     SharedMatrix CTempb = std::make_shared<Matrix>(nirrep_, irrep_sizes_.data(),
-                                                   irrep_sizes_.data());
+                                                   bocc_per_irrep_.data());
 // Alpha
 #pragma omp parallel for
     for (int i = 0; i < nirrep_; i++) {
@@ -634,15 +686,6 @@ double GPUEinsumsUHF::compute_energy() {
     const std::vector<SharedMatrix> &K_mat = jk_->K();
 
     // Proceed as normal
-    auto Ja = new einsums::BlockDeviceTensor<double, 2>(
-        "Alpha J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
-    auto Ka = new einsums::BlockDeviceTensor<double, 2>(
-        "Alpha K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
-
-    auto Jb = new einsums::BlockDeviceTensor<double, 2>(
-        "Beta J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
-    auto Kb = new einsums::BlockDeviceTensor<double, 2>(
-        "Beta K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
 
 #pragma omp task depend(out : *Ja)
     {
@@ -690,7 +733,6 @@ double GPUEinsumsUHF::compute_energy() {
       Fa_ += *Jb;
       Fa_ -= *Ka;
 
-      delete Ka;
       timer_off("Form Fa");
     }
 
@@ -700,14 +742,7 @@ double GPUEinsumsUHF::compute_energy() {
       Fb_ += *Jb;
       Fb_ -= *Kb;
 
-      delete Kb;
       timer_off("Form Fb");
-    }
-
-#pragma omp task depend(inout : *Ja, *Jb)
-    {
-      delete Ja;
-      delete Jb;
     }
 
 #pragma omp task depend(in : this->Da_, this->S_, this->Fa_)                   \
@@ -755,35 +790,63 @@ double GPUEinsumsUHF::compute_energy() {
     }
 
     if (diis_max_iters_ > 0) {
-#pragma omp task depend(in : *Temp1a) depend(inout : this -> Fa_)              \
+#pragma omp task depend(in : *Temp1a)                                          \
+    depend(inout : this -> Fa_, *error_valsa)                                  \
     depend(out : *errorsa, *focksa, *coefsa)
       {
 
         if (errorsa->size() == diis_max_iters_) {
-          errorsa->pop_front();
+          double max_error = -INFINITY;
+          int max_ind = -1;
+
+          for (int i = 0; i < diis_max_iters_; i++) {
+            if (error_valsa->at(i) > max_error) {
+              max_error = error_valsa->at(i);
+              max_ind = i;
+            }
+          }
+
+          focksa->at(max_ind) = Fa_;
+          errorsa->at(max_ind) = *Temp1a;
+          error_valsa->at(max_ind) =
+              einsums::linear_algebra::dot(*Temp1a, *Temp1a);
+        } else {
+          errorsa->push_back(*Temp1a);
+          focksa->push_back(Fa_);
+          error_valsa->push_back(
+              einsums::linear_algebra::dot(*Temp1a, *Temp1a));
         }
-        errorsa->push_back(*Temp1a);
-        if (focksa->size() == diis_max_iters_) {
-          focksa->pop_front();
-        }
-        focksa->push_back(Fa_);
 
         compute_diis_coefs(*errorsa, coefsa);
 
         compute_diis_fock(*coefsa, *focksa, &Fa_);
       }
-#pragma omp task depend(in : *Temp1b) depend(inout : this -> Fb_)              \
+#pragma omp task depend(in : *Temp1b)                                          \
+    depend(inout : this -> Fb_, *error_valsb)                                  \
     depend(out : *errorsb, *focksb, *coefsb)
       {
 
         if (errorsb->size() == diis_max_iters_) {
-          errorsb->pop_front();
+          double max_error = -INFINITY;
+          int max_ind = -1;
+
+          for (int i = 0; i < diis_max_iters_; i++) {
+            if (error_valsb->at(i) > max_error) {
+              max_error = error_valsb->at(i);
+              max_ind = i;
+            }
+          }
+
+          focksb->at(max_ind) = Fb_;
+          errorsb->at(max_ind) = *Temp1b;
+          error_valsb->at(max_ind) =
+              einsums::linear_algebra::dot(*Temp1b, *Temp1b);
+        } else {
+          errorsb->push_back(*Temp1b);
+          focksb->push_back(Fb_);
+          error_valsb->push_back(
+              einsums::linear_algebra::dot(*Temp1b, *Temp1b));
         }
-        errorsb->push_back(*Temp1b);
-        if (focksb->size() == diis_max_iters_) {
-          focksb->pop_front();
-        }
-        focksb->push_back(Fb_);
 
         compute_diis_coefs(*errorsb, coefsb);
 
@@ -792,10 +855,6 @@ double GPUEinsumsUHF::compute_energy() {
     }
 
     // Density RMS
-    einsums::DeviceTensor<double, 0> *dRMS_tensa =
-                                         new einsums::DeviceTensor<double, 0>(),
-                                     *dRMS_tensb =
-                                         new einsums::DeviceTensor<double, 0>();
     *dRMS_tensa = 0;
     *dRMS_tensb = 0;
 
@@ -827,8 +886,6 @@ double GPUEinsumsUHF::compute_energy() {
 
 #pragma omp taskwait depend(in : *dRMS_tensa, *dRMS_tensb)
     double dRMS = std::sqrt((double)*dRMS_tensa + (double)*dRMS_tensb);
-    delete dRMS_tensa;
-    delete dRMS_tensb;
 
     // Compute the energy
     timer_on("Compute electronic energy");
@@ -892,6 +949,41 @@ double GPUEinsumsUHF::compute_energy() {
 
     // Update Cocc.
     update_Cocc(*Evalsa, *Evalsb);
+
+    if (aocc_per_irrep_ != old_occsa || bocc_per_irrep_ != old_occsb) {
+      outfile->Printf("    Occupation Changed:\n         \t");
+
+      for (int i = 0; i < S_.num_blocks(); i++) {
+        outfile->Printf("%4s\t", S_.name(i).c_str());
+      }
+
+      outfile->Printf("\n    AOCC \t");
+      for (int i = 0; i < aocc_per_irrep_.size(); i++) {
+        outfile->Printf("%4d\t", aocc_per_irrep_[i]);
+      }
+
+      outfile->Printf("\n    BOCC \t");
+      for (int i = 0; i < bocc_per_irrep_.size(); i++) {
+        outfile->Printf("%4d\t", bocc_per_irrep_[i]);
+      }
+
+      outfile->Printf("\n    VIRT \t");
+
+      for (int i = 0; i < aocc_per_irrep_.size(); i++) {
+        outfile->Printf("%4d\t", irrep_sizes_[i] - aocc_per_irrep_[i]);
+      }
+
+      outfile->Printf("\n    Total\t");
+
+      for (int i = 0; i < aocc_per_irrep_.size(); i++) {
+        outfile->Printf("%4d\t", irrep_sizes_[i]);
+      }
+
+      outfile->Printf("\n");
+    }
+
+    old_occsa = aocc_per_irrep_;
+    old_occsb = bocc_per_irrep_;
 
 #pragma omp task depend(in : this->Cocca_) depend(out : this -> Da_)
     {
@@ -1096,6 +1188,8 @@ double GPUEinsumsUHF::compute_energy() {
   delete Evalsa;
   delete FDSa;
   delete SDFa;
+  delete Ja;
+  delete Ka;
 
   delete coefsb;
   delete focksb;
@@ -1107,6 +1201,16 @@ double GPUEinsumsUHF::compute_energy() {
   delete Evalsb;
   delete FDSb;
   delete SDFb;
+  delete Jb;
+  delete Kb;
+
+  delete dRMS_tensa;
+  delete dRMS_tensb;
+
+  delete error_valsa;
+  delete error_valsb;
+  delete elec_a;
+  delete elec_b;
 
   return e_new;
 }
@@ -1120,7 +1224,7 @@ void GPUEinsumsUHF::print_header() {
   outfile->Printf("                                by Connor Briggs\n");
   outfile->Printf("                                 %4s Reference\n",
                   options_.get_str("REFERENCE").c_str());
-  outfile->Printf("                               Running on the GPU\n");
+  outfile->Printf("                               Running on the CPU\n");
   outfile->Printf("                      %3d Threads, %6ld MiB Core\n", nthread,
                   memory_ / 1048576L);
   outfile->Printf(

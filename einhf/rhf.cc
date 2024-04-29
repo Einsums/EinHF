@@ -47,6 +47,7 @@
 #include <LinearAlgebra.hpp>
 #include <_Common.hpp>
 #include <_Index.hpp>
+#include <cmath>
 
 static std::string to_lower(const std::string &str) {
   std::string out(str);
@@ -65,7 +66,6 @@ EinsumsSCF::EinsumsSCF(SharedWavefunction ref_wfn, Options &options)
 
   // Shallow copy useful objects from the passed in wavefunction
   shallow_copy(ref_wfn);
-
 
   print_header();
 
@@ -368,10 +368,17 @@ double EinsumsSCF::compute_energy() {
       new einsums::BlockTensor<double, 2>("Eigenvectors", irrep_sizes_);
   auto Evals = new einsums::Tensor<double, 1>("Eigenvalues", nso_);
 
+  auto J = new einsums::BlockTensor<double, 2>("J matrix", irrep_sizes_);
+  auto K = new einsums::BlockTensor<double, 2>("K matrix", irrep_sizes_);
+
   std::deque<einsums::BlockTensor<double, 2>>
       *errors = new std::deque<einsums::BlockTensor<double, 2>>(0),
       *focks = new std::deque<einsums::BlockTensor<double, 2>>(0);
-  std::vector<double> *coefs = new std::vector<double>(0);
+  std::vector<double> *coefs = new std::vector<double>(0),
+                      *error_vals = new std::vector<double>(0);
+
+  std::vector<int> old_occs;
+  einsums::Tensor<double, 0> *dRMS_tens = new einsums::Tensor<double, 0>();
 
 #pragma omp task depend(in : this->S_) depend(out : this -> X_)
   {
@@ -400,6 +407,8 @@ double EinsumsSCF::compute_energy() {
   timer_off("Form C");
 
   update_Cocc(*Evals);
+
+  old_occs = occ_per_irrep_;
 
   timer_on("Form D");
   einsums::tensor_algebra::einsum(
@@ -430,6 +439,31 @@ double EinsumsSCF::compute_energy() {
   double e_new = e_nuc_ + compute_electronic_energy();
 
   outfile->Printf("    Energy from core Hamiltonian guess: %20.16f\n\n", e_new);
+
+  outfile->Printf("    Initial Occupation:\n         \t");
+
+  for (int i = 0; i < S_.num_blocks(); i++) {
+    outfile->Printf("%4s\t", S_.name(i).c_str());
+  }
+
+  outfile->Printf("\n    DOCC \t");
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", occ_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    VIRT \t");
+
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i] - occ_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    Total\t");
+
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i]);
+  }
+
+  outfile->Printf("\n");
 
   outfile->Printf(
       "    *===========================================================*\n");
@@ -479,8 +513,6 @@ double EinsumsSCF::compute_energy() {
     const std::vector<SharedMatrix> &K_mat = jk_->K();
 
     // Proceed as normal
-    auto J = new einsums::BlockTensor<double, 2>("J matrix", irrep_sizes_);
-    auto K = new einsums::BlockTensor<double, 2>("K matrix", irrep_sizes_);
 
 #pragma omp task depend(out : *J)
     {
@@ -521,15 +553,9 @@ double EinsumsSCF::compute_energy() {
     }
 
 #pragma omp task depend(inout : *J) depend(out : this -> F_)
-    {
-      F_ += *J;
-      delete J;
-    }
+    { F_ += *J; }
 #pragma omp task depend(inout : *K) depend(out : this -> F_)
-    {
-      F_ -= *K;
-      delete K;
-    }
+    { F_ -= *K; }
 
 // I don't think this will cause a slowdown since the next part will do the same
 // thing.
@@ -555,29 +581,40 @@ double EinsumsSCF::compute_energy() {
     }
 
     // Density RMS
-    einsums::Tensor<double, 0> *dRMS_tens = new einsums::Tensor<double, 0>();
     *dRMS_tens = 0;
 
+    if (diis_max_iters_ > 0) {
 #pragma omp task depend(in : *Temp1)                                           \
-    depend(inout : *errors, *focks, this -> F_, coefs)
-    {
-      timer_on("Perform DIIS");
-      if (diis_max_iters_ > 0) {
+    depend(inout : *errors, *focks, this -> F_, *coefs, *error_vals)
+      {
+        timer_on("Perform DIIS");
 
         if (errors->size() == diis_max_iters_) {
-          errors->pop_front();
+          double max_error = -INFINITY;
+          int max_ind = -1;
+
+          for (int i = 0; i < diis_max_iters_; i++) {
+            if (error_vals->at(i) > max_error) {
+              max_error = error_vals->at(i);
+              max_ind = i;
+            }
+          }
+
+          focks->at(max_ind) = F_;
+          errors->at(max_ind) = *Temp1;
+          error_vals->at(max_ind) =
+              einsums::linear_algebra::dot(*Temp1, *Temp1);
+        } else {
+          errors->push_back(*Temp1);
+          focks->push_back(F_);
+          error_vals->push_back(einsums::linear_algebra::dot(*Temp1, *Temp1));
         }
-        errors->push_back(*Temp1);
-        if (focks->size() == diis_max_iters_) {
-          focks->pop_front();
-        }
-        focks->push_back(F_);
 
         compute_diis_coefs(*errors, coefs);
 
         compute_diis_fock(*coefs, *focks, &F_);
+        timer_off("Perform DIIS");
       }
-      timer_off("Perform DIIS");
     }
 
 #pragma omp task depend(in : *Temp1) depend(out : *dRMS_tens)
@@ -597,7 +634,7 @@ double EinsumsSCF::compute_energy() {
 #pragma omp taskwait depend(in : this->F_, this->D_, this->H_)
     timer_on("Compute electronic energy");
     e_new = e_nuc_ + compute_electronic_energy();
-    timer_on("Compute electronic energy");
+    timer_off("Compute electronic energy");
 
     double dE = e_new - e_old;
 
@@ -637,6 +674,35 @@ double EinsumsSCF::compute_energy() {
                                          einsums::tensor_algebra::index::m},
         Cocc_);
     timer_off("Form D");
+
+    if (occ_per_irrep_ != old_occs) {
+      outfile->Printf("    Occupation Changed:\n         \t");
+
+      for (int i = 0; i < S_.num_blocks(); i++) {
+        outfile->Printf("%4s\t", S_.name(i).c_str());
+      }
+
+      outfile->Printf("\n    DOCC \t");
+      for (int i = 0; i < occ_per_irrep_.size(); i++) {
+        outfile->Printf("%4d\t", occ_per_irrep_[i]);
+      }
+
+      outfile->Printf("\n    VIRT \t");
+
+      for (int i = 0; i < occ_per_irrep_.size(); i++) {
+        outfile->Printf("%4d\t", irrep_sizes_[i] - occ_per_irrep_[i]);
+      }
+
+      outfile->Printf("\n    Total\t");
+
+      for (int i = 0; i < occ_per_irrep_.size(); i++) {
+        outfile->Printf("%4d\t", irrep_sizes_[i]);
+      }
+
+      outfile->Printf("\n");
+    }
+
+    old_occs = occ_per_irrep_;
 
     // Optional printing
     if (print_ > 3) {
@@ -724,6 +790,7 @@ double EinsumsSCF::compute_energy() {
   delete coefs;
   delete focks;
   delete errors;
+  delete error_vals;
 
   delete Temp1;
   delete Temp2;
@@ -731,6 +798,11 @@ double EinsumsSCF::compute_energy() {
   delete Evals;
   delete FDS;
   delete SDF;
+
+  delete J;
+  delete K;
+
+  delete dRMS_tens;
 
   timer_off("EinHF: Computing energy");
 

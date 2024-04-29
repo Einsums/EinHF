@@ -42,12 +42,12 @@
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
-#include <DeviceTensor.hpp>
+#include "psi4/libqt/qt.h"
+#include "psi4/psi4-dec.h"
 #include <LinearAlgebra.hpp>
 #include <_Common.hpp>
-#include <_GPUUtils.hpp>
 #include <_Index.hpp>
-#include <stdexcept>
+#include <cmath>
 
 static std::string to_lower(const std::string &str) {
   std::string out(str);
@@ -66,6 +66,8 @@ GPUEinsumsSCF::GPUEinsumsSCF(SharedWavefunction ref_wfn, Options &options)
 
   // Shallow copy useful objects from the passed in wavefunction
   shallow_copy(ref_wfn);
+
+  print_header();
 
   nirrep_ = sobasisset_->nirrep();
   nso_ = basisset_->nbf();
@@ -110,26 +112,30 @@ GPUEinsumsSCF::GPUEinsumsSCF(SharedWavefunction ref_wfn, Options &options)
   }
 
   for (int i = 0; i < this->nirrep_; i++) {
-    C_.push_block(einsums::DeviceTensor<double, 2>(
+    auto block = einsums::DeviceTensor<double, 2>(
         molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
-        irrep_sizes_[i], irrep_sizes_[i]));
+        irrep_sizes_[i], irrep_sizes_[i]);
+
+    C_.push_block(block);
   }
 
   for (int i = 0; i < this->nirrep_; i++) {
-    Cocc_.push_block(einsums::DeviceTensor<double, 2>(
+    auto block = einsums::DeviceTensor<double, 2>(
         molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
-        irrep_sizes_[i], irrep_sizes_[i]));
+        irrep_sizes_[i], irrep_sizes_[i]);
+
+    Cocc_.push_block(block);
   }
 
   for (int i = 0; i < this->nirrep_; i++) {
-    D_.push_block(einsums::DeviceTensor<double, 2>(
+    auto block = einsums::DeviceTensor<double, 2>(
         molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
-        irrep_sizes_[i], irrep_sizes_[i]));
+        irrep_sizes_[i], irrep_sizes_[i]);
+
+    D_.push_block(block);
   }
 
   timer_off("EinHF: Setup wavefunction");
-
-  print_header();
 }
 
 GPUEinsumsSCF::~GPUEinsumsSCF() {}
@@ -188,21 +194,21 @@ void GPUEinsumsSCF::init_integrals() {
 
   for (int i = 0; i < S_mat->nirrep(); i++) {
     irrep_sizes_.push_back(S_mat->rowdim(i));
-    S_.push_block(einsums::DeviceTensor<double, 2>(
+    auto S_block = einsums::DeviceTensor<double, 2>(
         molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
-        irrep_sizes_[i], irrep_sizes_[i]));
-    if (irrep_sizes_[i] != 0) {
-      S_[i].read(S_mat->get_pointer(i));
-    }
+        S_mat->rowdim(i), S_mat->coldim(i));
+    S_block.read(S_mat->get_pointer(i));
+    S_.push_block(S_block);
   }
 
   for (int i = 0; i < S_mat->nirrep(); i++) {
-    H_.push_block(einsums::DeviceTensor<double, 2>(
+    auto H_block = einsums::DeviceTensor<double, 2>(
         molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
-        irrep_sizes_[i], irrep_sizes_[i]));
-    if (irrep_sizes_[i] != 0) {
-      H_[i].read(H_mat->get_pointer(i));
-    }
+        H_mat->rowdim(i), H_mat->coldim(i));
+
+    H_block.read(H_mat->get_pointer(i));
+
+    H_.push_block(H_block);
   }
 
   if (print_ > 3) {
@@ -238,8 +244,7 @@ double GPUEinsumsSCF::compute_electronic_energy() {
   // Compute the electronic energy: (H + F)_pq * D_pq -> energy
 
   einsums::DeviceTensor<double, 0> e_tens;
-  auto temp = einsums::BlockDeviceTensor<double, 2>(
-      "temp", einsums::detail::DEV_ONLY, H_.vector_dims());
+  auto temp = einsums::BlockDeviceTensor<double, 2>("temp", einsums::detail::DEV_ONLY, H_.vector_dims());
 
   temp = H_;
   temp += F_;
@@ -256,8 +261,7 @@ double GPUEinsumsSCF::compute_electronic_energy() {
   return (double)e_tens;
 }
 
-void GPUEinsumsSCF::update_Cocc(
-    const einsums::DeviceTensor<double, 1> &energies) {
+void GPUEinsumsSCF::update_Cocc(const einsums::DeviceTensor<double, 1> &energies) {
   // Update occupation.
 
   for (int i = 0; i < nirrep_; i++) {
@@ -306,6 +310,7 @@ void GPUEinsumsSCF::compute_diis_coefs(
 
 #pragma omp parallel for
   for (int i = 0; i < errors.size(); i++) {
+#pragma omp parallel for
     for (int j = 0; j <= i; j++) {
       (*B_mat)(i, j) = einsums::linear_algebra::dot(errors[i], errors[j]);
       (*B_mat)(j, i) = (*B_mat)(i, j);
@@ -351,23 +356,28 @@ double GPUEinsumsSCF::compute_energy() {
   }
 
   // Allocate a few temporary matrices
-  auto Temp1 = new einsums::BlockDeviceTensor<double, 2>(
-      "Temporary Array 1", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto Temp2 = new einsums::BlockDeviceTensor<double, 2>(
-      "Temporary Array 2", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto FDS = new einsums::BlockDeviceTensor<double, 2>(
-      "FDS", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto SDF = new einsums::BlockDeviceTensor<double, 2>(
-      "SDF", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto Evecs = new einsums::BlockDeviceTensor<double, 2>(
-      "Eigenvectors", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto Evals = new einsums::DeviceTensor<double, 1>(
-      "Eigenvalues", einsums::detail::DEV_ONLY, nso_);
+  auto Temp1 =
+      new einsums::BlockDeviceTensor<double, 2>("Temporary Array 1", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Temp2 =
+      new einsums::BlockDeviceTensor<double, 2>("Temporary Array 2", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto FDS = new einsums::BlockDeviceTensor<double, 2>("FDS", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto SDF = new einsums::BlockDeviceTensor<double, 2>("SDF", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Evecs =
+      new einsums::BlockDeviceTensor<double, 2>("Eigenvectors", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Evals = new einsums::DeviceTensor<double, 1>("Eigenvalues", einsums::detail::DEV_ONLY, nso_);
+
+  auto J = new einsums::BlockDeviceTensor<double, 2>("J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto K = new einsums::BlockDeviceTensor<double, 2>("K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
 
   std::deque<einsums::BlockDeviceTensor<double, 2>>
       *errors = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0),
       *focks = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0);
-  std::vector<double> *coefs = new std::vector<double>(0);
+  std::vector<double> *coefs = new std::vector<double>(0),
+                      *error_vals = new std::vector<double>(0);
+
+  std::vector<int> old_occs;
+
+  einsums::DeviceTensor<double, 0> *dRMS_tens = new einsums::DeviceTensor<double, 0>();
 
 #pragma omp task depend(in : this->S_) depend(out : this -> X_)
   {
@@ -396,6 +406,8 @@ double GPUEinsumsSCF::compute_energy() {
   timer_off("Form C");
 
   update_Cocc(*Evals);
+
+  old_occs = occ_per_irrep_;
 
   timer_on("Form D");
   einsums::tensor_algebra::einsum(
@@ -427,6 +439,31 @@ double GPUEinsumsSCF::compute_energy() {
 
   outfile->Printf("    Energy from core Hamiltonian guess: %20.16f\n\n", e_new);
 
+  outfile->Printf("    Initial Occupation:\n         \t");
+
+  for (int i = 0; i < S_.num_blocks(); i++) {
+    outfile->Printf("%4s\t", S_.name(i).c_str());
+  }
+
+  outfile->Printf("\n    DOCC \t");
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", occ_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    VIRT \t");
+
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i] - occ_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    Total\t");
+
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i]);
+  }
+
+  outfile->Printf("\n");
+
   outfile->Printf(
       "    *===========================================================*\n");
   outfile->Printf(
@@ -438,7 +475,6 @@ double GPUEinsumsSCF::compute_energy() {
     e_old = e_new;
 
     timer_on("Form F");
-
 // Add the core Hamiltonian term to the Fock operator
 #pragma omp task depend(in : this->H_) depend(out : this -> F_)
     { F_ = H_; }
@@ -459,10 +495,11 @@ double GPUEinsumsSCF::compute_energy() {
       if (irrep_sizes_[i] == 0) {
         continue;
       }
-
+#pragma omp parallel for
       for (int j = 0; j < irrep_sizes_[i]; j++) {
+#pragma omp parallel for
         for (int k = 0; k < occ_per_irrep_[i]; k++) {
-          CTemp->set(i, j, k, Cocc_[i](j, k));
+          (*CTemp.get())(i, j, k) = Cocc_[i](j, k);
         }
       }
     }
@@ -475,10 +512,6 @@ double GPUEinsumsSCF::compute_energy() {
     const std::vector<SharedMatrix> &K_mat = jk_->K();
 
     // Proceed as normal
-    auto J = new einsums::BlockDeviceTensor<double, 2>(
-        "J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
-    auto K = new einsums::BlockDeviceTensor<double, 2>(
-        "K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
 
 #pragma omp task depend(out : *J)
     {
@@ -490,12 +523,13 @@ double GPUEinsumsSCF::compute_energy() {
         }
         J->block(i).read(J_mat[0]->get_pointer(i));
       }
-      *J *= 2;
+      *J *= 2.0;
       timer_off("Form J");
     }
 
 #pragma omp task depend(out : *K)
     {
+      timer_on("Form K");
 #pragma omp parallel for
       for (int i = 0; i < nirrep_; i++) {
         if (irrep_sizes_[i] == 0) {
@@ -503,21 +537,17 @@ double GPUEinsumsSCF::compute_energy() {
         }
         K->block(i).read(K_mat[0]->get_pointer(i));
       }
+      timer_off("Form K");
     }
 
 #pragma omp task depend(inout : *J) depend(out : this -> F_)
-    {
-      F_ += *J;
-      delete J;
-    }
+    { F_ += *J; }
 #pragma omp task depend(inout : *K) depend(out : this -> F_)
-    {
-      F_ -= *K;
-      delete K;
-    }
+    { F_ -= *K; }
 
+// I don't think this will cause a slowdown since the next part will do the same
+// thing.
 #pragma omp taskwait depend(in : this->F_)
-
     timer_off("Form F");
 
 // Compute the orbital gradient, FDS-SDF
@@ -539,30 +569,40 @@ double GPUEinsumsSCF::compute_energy() {
     }
 
     // Density RMS
-    einsums::DeviceTensor<double, 0> *dRMS_tens =
-        new einsums::DeviceTensor<double, 0>();
     *dRMS_tens = 0;
 
+    if (diis_max_iters_ > 0) {
 #pragma omp task depend(in : *Temp1)                                           \
-    depend(inout : *errors, *focks, this -> F_, coefs)
-    {
-      timer_on("Perform DIIS");
-      if (diis_max_iters_ > 0) {
+    depend(inout : *errors, *focks, this -> F_, *coefs, *error_vals)
+      {
+        timer_on("Perform DIIS");
 
         if (errors->size() == diis_max_iters_) {
-          errors->pop_front();
+          double max_error = -INFINITY;
+          int max_ind = -1;
+
+          for (int i = 0; i < diis_max_iters_; i++) {
+            if (error_vals->at(i) > max_error) {
+              max_error = error_vals->at(i);
+              max_ind = i;
+            }
+          }
+
+          focks->at(max_ind) = F_;
+          errors->at(max_ind) = *Temp1;
+          error_vals->at(max_ind) =
+              einsums::linear_algebra::dot(*Temp1, *Temp1);
+        } else {
+          errors->push_back(*Temp1);
+          focks->push_back(F_);
+          error_vals->push_back(einsums::linear_algebra::dot(*Temp1, *Temp1));
         }
-        errors->push_back(*Temp1);
-        if (focks->size() == diis_max_iters_) {
-          focks->pop_front();
-        }
-        focks->push_back(F_);
 
         compute_diis_coefs(*errors, coefs);
 
         compute_diis_fock(*coefs, *focks, &F_);
+        timer_off("Perform DIIS");
       }
-      timer_off("Perform DIIS");
     }
 
 #pragma omp task depend(in : *Temp1) depend(out : *dRMS_tens)
@@ -622,6 +662,35 @@ double GPUEinsumsSCF::compute_energy() {
                                          einsums::tensor_algebra::index::m},
         Cocc_);
     timer_off("Form D");
+
+    if (occ_per_irrep_ != old_occs) {
+      outfile->Printf("    Occupation Changed:\n         \t");
+
+      for (int i = 0; i < S_.num_blocks(); i++) {
+        outfile->Printf("%4s\t", S_.name(i).c_str());
+      }
+
+      outfile->Printf("\n    DOCC \t");
+      for (int i = 0; i < occ_per_irrep_.size(); i++) {
+        outfile->Printf("%4d\t", occ_per_irrep_[i]);
+      }
+
+      outfile->Printf("\n    VIRT \t");
+
+      for (int i = 0; i < occ_per_irrep_.size(); i++) {
+        outfile->Printf("%4d\t", irrep_sizes_[i] - occ_per_irrep_[i]);
+      }
+
+      outfile->Printf("\n    Total\t");
+
+      for (int i = 0; i < occ_per_irrep_.size(); i++) {
+        outfile->Printf("%4d\t", irrep_sizes_[i]);
+      }
+
+      outfile->Printf("\n");
+    }
+
+    old_occs = occ_per_irrep_;
 
     // Optional printing
     if (print_ > 3) {
@@ -709,6 +778,7 @@ double GPUEinsumsSCF::compute_energy() {
   delete coefs;
   delete focks;
   delete errors;
+  delete error_vals;
 
   delete Temp1;
   delete Temp2;
@@ -716,6 +786,10 @@ double GPUEinsumsSCF::compute_energy() {
   delete Evals;
   delete FDS;
   delete SDF;
+
+  delete J;
+  delete K;
+  delete dRMS_tens;
 
   timer_off("EinHF: Computing energy");
 
@@ -730,7 +804,7 @@ void GPUEinsumsSCF::print_header() {
       "         ---------------------------------------------------------\n");
   outfile->Printf("                                   Einsums SCF\n");
   outfile->Printf("                                by Connor Briggs\n");
-  outfile->Printf("                             %4s Reference\n",
+  outfile->Printf("                                 %4s Reference\n",
                   options_.get_str("REFERENCE").c_str());
   outfile->Printf("                               Running on the GPU\n");
   outfile->Printf("                      %3d Threads, %6ld MiB Core\n", nthread,

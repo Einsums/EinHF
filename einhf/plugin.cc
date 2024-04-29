@@ -80,7 +80,6 @@ extern "C" PSI_API int read_options(std::string name, Options &options) {
 
 extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
                                             Options &options) {
-  timer_on("EinHF");
 
   omp_set_num_threads(Process::environment.get_n_threads());
 
@@ -91,6 +90,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
   einsums::initialize();
   if (to_lower(options.get_str("REFERENCE")) == "rhf" &&
       to_lower(options.get_str("COMPUTE")) == "cpu") {
+    timer_on("EinHF: CPU RHF");
     // Build an SCF object, and tell it to compute its energy
     SharedWavefunction scfwfn =
         std::shared_ptr<Wavefunction>(new EinsumsSCF(ref_wfn, options));
@@ -101,11 +101,12 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
     }
 
     einsums::finalize(true);
-    timer_off("EinHF");
+    timer_off("EinHF: CPU RHF");
 
     return scfwfn;
   } else if (to_lower(options.get_str("REFERENCE")) == "uhf" &&
              to_lower(options.get_str("COMPUTE")) == "cpu") {
+    timer_on("EinHF: CPU UHF");
     // Build an SCF object, and tell it to compute its energy
     SharedWavefunction scfwfn =
         std::shared_ptr<Wavefunction>(new EinsumsUHF(ref_wfn, options));
@@ -116,11 +117,12 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
     }
 
     einsums::finalize(true);
-    timer_off("EinHF");
+    timer_off("EinHF: CPU UHF");
 
     return scfwfn;
   } else if (to_lower(options.get_str("REFERENCE")) == "rhf" &&
              to_lower(options.get_str("COMPUTE")) == "gpu") {
+    timer_on("EinHF: GPU RHF");
     // Build an SCF object, and tell it to compute its energy
     SharedWavefunction scfwfn =
         std::shared_ptr<Wavefunction>(new GPUEinsumsSCF(ref_wfn, options));
@@ -131,11 +133,12 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
     }
 
     einsums::finalize(true);
-    timer_off("EinHF");
+    timer_off("EinHF: GPU RHF");
 
     return scfwfn;
   } else if (to_lower(options.get_str("REFERENCE")) == "uhf" &&
              to_lower(options.get_str("COMPUTE")) == "gpu") {
+    timer_on("EinHF: GPU UHF");
     // Build an SCF object, and tell it to compute its energy
     SharedWavefunction scfwfn =
         std::shared_ptr<Wavefunction>(new GPUEinsumsUHF(ref_wfn, options));
@@ -146,7 +149,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
     }
 
     einsums::finalize(true);
-    timer_off("EinHF");
+    timer_off("EinHF: GPU UHF");
 
     return scfwfn;
   } else {
