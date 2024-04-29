@@ -64,12 +64,12 @@ EinsumsUHF::EinsumsUHF(SharedWavefunction ref_wfn, Options &options)
   // Shallow copy useful objects from the passed in wavefunction
   shallow_copy(ref_wfn);
 
+  print_ = options_.get_int("PRINT");
   print_header();
 
   nirrep_ = sobasisset_->nirrep();
   nso_ = basisset_->nbf();
 
-  print_ = options_.get_int("PRINT");
   maxiter_ = options_.get_int("SCF_MAXITER");
   e_convergence_ = options_.get_double("E_CONVERGENCE");
   d_convergence_ = options_.get_double("D_CONVERGENCE");

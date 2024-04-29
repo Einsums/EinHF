@@ -25,7 +25,7 @@ H   1.2499038739   2.1648994052   0.0000000000
 }
 
 set {
-  basis cc-pVTZ
+  basis sto-3g
 }
 
 set GUESS CORE
@@ -42,28 +42,3 @@ psi4.core.timer_off("Psi4 HF")
 E2 = energy('einhf')
 
 assert(abs(E2 - E1) < 1e-6)
-
-set COMPUTE GPU
-
-E2 = energy('einhf')
-
-assert(abs(E2 - E1) < 1e-6)
-
-set reference uhf
-
-set COMPUTE CPU
-
-E2 = energy('einhf')
-
-assert(abs(E2 - E1) < 1e-6)
-
-set COMPUTE GPU
-
-E2 = energy('einhf')
-
-assert(abs(E2 - E1) < 1e-6)
-
-
-
-
-

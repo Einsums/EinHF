@@ -67,12 +67,12 @@ GPUEinsumsSCF::GPUEinsumsSCF(SharedWavefunction ref_wfn, Options &options)
   // Shallow copy useful objects from the passed in wavefunction
   shallow_copy(ref_wfn);
 
+  print_ = options_.get_int("PRINT");
   print_header();
 
   nirrep_ = sobasisset_->nirrep();
   nso_ = basisset_->nbf();
 
-  print_ = options_.get_int("PRINT");
   maxiter_ = options_.get_int("SCF_MAXITER");
   e_convergence_ = options_.get_double("E_CONVERGENCE");
   d_convergence_ = options_.get_double("D_CONVERGENCE");
@@ -244,7 +244,8 @@ double GPUEinsumsSCF::compute_electronic_energy() {
   // Compute the electronic energy: (H + F)_pq * D_pq -> energy
 
   einsums::DeviceTensor<double, 0> e_tens;
-  auto temp = einsums::BlockDeviceTensor<double, 2>("temp", einsums::detail::DEV_ONLY, H_.vector_dims());
+  auto temp = einsums::BlockDeviceTensor<double, 2>(
+      "temp", einsums::detail::DEV_ONLY, H_.vector_dims());
 
   temp = H_;
   temp += F_;
@@ -261,7 +262,8 @@ double GPUEinsumsSCF::compute_electronic_energy() {
   return (double)e_tens;
 }
 
-void GPUEinsumsSCF::update_Cocc(const einsums::DeviceTensor<double, 1> &energies) {
+void GPUEinsumsSCF::update_Cocc(
+    const einsums::DeviceTensor<double, 1> &energies) {
   // Update occupation.
 
   for (int i = 0; i < nirrep_; i++) {
@@ -356,18 +358,23 @@ double GPUEinsumsSCF::compute_energy() {
   }
 
   // Allocate a few temporary matrices
-  auto Temp1 =
-      new einsums::BlockDeviceTensor<double, 2>("Temporary Array 1", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto Temp2 =
-      new einsums::BlockDeviceTensor<double, 2>("Temporary Array 2", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto FDS = new einsums::BlockDeviceTensor<double, 2>("FDS", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto SDF = new einsums::BlockDeviceTensor<double, 2>("SDF", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto Evecs =
-      new einsums::BlockDeviceTensor<double, 2>("Eigenvectors", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto Evals = new einsums::DeviceTensor<double, 1>("Eigenvalues", einsums::detail::DEV_ONLY, nso_);
+  auto Temp1 = new einsums::BlockDeviceTensor<double, 2>(
+      "Temporary Array 1", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Temp2 = new einsums::BlockDeviceTensor<double, 2>(
+      "Temporary Array 2", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto FDS = new einsums::BlockDeviceTensor<double, 2>(
+      "FDS", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto SDF = new einsums::BlockDeviceTensor<double, 2>(
+      "SDF", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Evecs = new einsums::BlockDeviceTensor<double, 2>(
+      "Eigenvectors", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto Evals = new einsums::DeviceTensor<double, 1>(
+      "Eigenvalues", einsums::detail::DEV_ONLY, nso_);
 
-  auto J = new einsums::BlockDeviceTensor<double, 2>("J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto K = new einsums::BlockDeviceTensor<double, 2>("K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto J = new einsums::BlockDeviceTensor<double, 2>(
+      "J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto K = new einsums::BlockDeviceTensor<double, 2>(
+      "K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
 
   std::deque<einsums::BlockDeviceTensor<double, 2>>
       *errors = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0),
@@ -377,7 +384,8 @@ double GPUEinsumsSCF::compute_energy() {
 
   std::vector<int> old_occs;
 
-  einsums::DeviceTensor<double, 0> *dRMS_tens = new einsums::DeviceTensor<double, 0>();
+  einsums::DeviceTensor<double, 0> *dRMS_tens =
+      new einsums::DeviceTensor<double, 0>();
 
 #pragma omp task depend(in : this->S_) depend(out : this -> X_)
   {

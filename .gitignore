@@ -58,3 +58,4 @@ einks/output.log
 einks/__pycache__/*
 einks/CMakeFiles/*
 *.clean
+einhf/valgrind.txt
