@@ -21,9 +21,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public License along
- * with Psi4; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Psi4; if not, write to the Free Software Foundation, Inc., 51
+ * Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  * @END LICENSE
  */
@@ -31,80 +31,97 @@
 #include <deque>
 #include <vector>
 
-#include "psi4/psi4-dec.h"
-#include "psi4/libmints/wavefunction.h"
+#include "psi4/libfock/v.h"
+#include "psi4/libfunctional/superfunctional.h"
 #include "psi4/libmints/matrix.h"
+#include "psi4/libmints/wavefunction.h"
+#include "psi4/psi4-dec.h"
 
 #include "einsums.hpp"
 
-namespace psi{
-    // Forward declare several variables
-    class Options;
-    class JK;
+namespace psi {
+// Forward declare several variables
+class Options;
+class JK;
 
-namespace einhf{
+namespace einhf {
 
 class GPUEinsumsSCF : public Wavefunction {
-  public:
-    /// The constuctor
-    GPUEinsumsSCF(SharedWavefunction ref_wfn, Options &options);
-    /// The destuctor
-    ~GPUEinsumsSCF();
-    /// Computes the SCF energy, and returns it
-    double compute_energy();
+public:
+  /// The constuctor
+  GPUEinsumsSCF(SharedWavefunction ref_wfn,
+                const std::shared_ptr<SuperFunctional> &functional,
+                Options &options);
+  /// The destuctor
+  ~GPUEinsumsSCF();
+  /// Computes the SCF energy, and returns it
+  double compute_energy();
 
-    void compute_diis_coefs(const std::deque<einsums::BlockDeviceTensor<double, 2>> &errors, std::vector<double> *out) const;
+  void compute_diis_coefs(
+      const std::deque<einsums::BlockDeviceTensor<double, 2>> &errors,
+      std::vector<double> *out) const;
 
-    void compute_diis_fock(const std::vector<double> &coefs, const std::deque<einsums::BlockDeviceTensor<double, 2>> &focks, einsums::BlockDeviceTensor<double, 2> *out) const;
+  void compute_diis_fock(
+      const std::vector<double> &coefs,
+      const std::deque<einsums::BlockDeviceTensor<double, 2>> &focks,
+      einsums::BlockDeviceTensor<double, 2> *out) const;
 
-    void print_header();
-  protected:
-    /// The amount of information to print to the output file
-    int print_;
-    /// The number of doubly occupied orbitals
-    int ndocc_;
+  void print_header();
 
-    /// The occupation per irrep.
-    std::vector<int> occ_per_irrep_;
-    /// The sizes of each irrep.
-    std::vector<int> irrep_sizes_;
+protected:
+  /// The amount of information to print to the output file
+  int print_;
+  /// The number of doubly occupied orbitals
+  int ndocc_;
 
-    /// The number of symmetrized spin orbitals
-    int nso_;
-    /// The maximum number of iterations
-    int maxiter_;
-    /// The number of DIIS iterations to hold.
-    int diis_max_iters_;
-    /// The nuclear repulsion energy
-    double e_nuc_;
-    /// The convergence criterion for the density
-    double d_convergence_;
-    /// The convergence criterion for the energy
-    double e_convergence_;
-    /// The one electron integrals
-    einsums::BlockDeviceTensor<double, 2> H_;
-    /// The overlap matrix
-    einsums::BlockDeviceTensor<double, 2> S_;
-    /// The inverse square root of the overlap matrix
-    einsums::BlockDeviceTensor<double, 2> X_;
-    /// The Fock Matrix
-    einsums::BlockDeviceTensor<double, 2> F_;
-    /// The transformed Fock matrix
-    einsums::BlockDeviceTensor<double, 2> Ft_;
-    /// The MO coefficients
-    einsums::BlockDeviceTensor<double, 2> C_;
-    /// The occupied MO coefficients
-    einsums::BlockDeviceTensor<double, 2> Cocc_;
-    /// The density matrix
-    einsums::BlockDeviceTensor<double, 2> D_;
-    /// The ubiquitous JK object
-    std::shared_ptr<JK> jk_;
-    /// Computes the electronic part of the SCF energy, and returns it
-    double compute_electronic_energy();
-    /// Sets up the integrals object
-    void init_integrals();
-    /// Updates the occupied MO coefficients
-    void update_Cocc(const einsums::DeviceTensor<double, 1> &energies);
+  /// The occupation per irrep.
+  std::vector<int> occ_per_irrep_;
+  /// The sizes of each irrep.
+  std::vector<int> irrep_sizes_;
+
+  /// The number of symmetrized spin orbitals
+  int nso_;
+  /// The maximum number of iterations
+  int maxiter_;
+  /// The number of DIIS iterations to hold.
+  int diis_max_iters_;
+  /// The nuclear repulsion energy
+  double e_nuc_;
+  /// The convergence criterion for the density
+  double d_convergence_;
+  /// The convergence criterion for the energy
+  double e_convergence_;
+  /// The one electron integrals
+  einsums::BlockDeviceTensor<double, 2> H_;
+  /// The overlap matrix
+  einsums::BlockDeviceTensor<double, 2> S_;
+  /// The inverse square root of the overlap matrix
+  einsums::BlockDeviceTensor<double, 2> X_;
+  /// The Fock Matrix
+  einsums::BlockDeviceTensor<double, 2> F_;
+  /// The Fock Matrix
+  einsums::BlockDeviceTensor<double, 2> JKwK_;
+  /// The transformed Fock matrix
+  einsums::BlockDeviceTensor<double, 2> Ft_;
+  /// The MO coefficients
+  einsums::BlockDeviceTensor<double, 2> C_;
+  /// The occupied MO coefficients
+  einsums::BlockDeviceTensor<double, 2> Cocc_;
+  /// The density matrix
+  einsums::BlockDeviceTensor<double, 2> D_;
+  /// The ubiquitous JK object
+  std::shared_ptr<JK> jk_;
+  /// The functional.
+  std::shared_ptr<SuperFunctional> func_;
+  /// The functional exchange integrator.
+  std::shared_ptr<VBase> v_;
+  /// Computes the electronic part of the SCF energy, and returns it
+  double compute_electronic_energy();
+  /// Sets up the integrals object
+  void init_integrals();
+  /// Updates the occupied MO coefficients
+  void update_Cocc(const einsums::DeviceTensor<double, 1> &energies);
 };
 
-}} //End namespaces
+} // namespace einhf
+} // namespace psi

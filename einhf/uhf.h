@@ -32,6 +32,8 @@
 #include <deque>
 #include <vector>
 
+#include "psi4/libfock/v.h"
+#include "psi4/libfunctional/superfunctional.h"
 #include "psi4/libmints/matrix.h"
 #include "psi4/libmints/wavefunction.h"
 #include "psi4/psi4-dec.h"
@@ -46,7 +48,9 @@ namespace einhf {
 class EinsumsUHF : public Wavefunction {
 public:
   /// The constuctor
-  EinsumsUHF(SharedWavefunction ref_wfn, Options &options);
+  EinsumsUHF(SharedWavefunction ref_wfn,
+             const std::shared_ptr<SuperFunctional> &functional,
+             Options &options);
   /// The destuctor
   ~EinsumsUHF();
   /// Computes the SCF energy, and returns it
@@ -95,6 +99,8 @@ protected:
   einsums::BlockTensor<double, 2> X_;
   /// The Fock Matrix
   einsums::BlockTensor<double, 2> Fa_, Fb_;
+  /// The two-electron non-exchange contributions.
+  einsums::BlockTensor<double, 2> JKwKa_, JKwKb_;
   /// The transformed Fock matrix
   einsums::BlockTensor<double, 2> Fta_, Ftb_;
   /// The MO coefficients
@@ -105,13 +111,18 @@ protected:
   einsums::BlockTensor<double, 2> Da_, Db_;
   /// The ubiquitous JK object
   std::shared_ptr<JK> jk_;
+  /// The functional.
+  std::shared_ptr<SuperFunctional> func_;
+  /// The functional exchange integrator.
+  std::shared_ptr<VBase> v_;
   /// Computes the electronic part of the SCF energy, and returns it
-  double compute_electronic_energy(const einsums::BlockTensor<double, 2> &F, const einsums::BlockTensor<double, 2> &D);
+  double compute_electronic_energy(const einsums::BlockTensor<double, 2> &JKwK,
+                                   const einsums::BlockTensor<double, 2> &D);
   /// Sets up the integrals object
   void init_integrals();
   /// Updates the occupied MO coefficients
   void update_Cocc(const einsums::Tensor<double, 1> &alpha_energies,
-                    const einsums::Tensor<double, 1> &beta_energies);
+                   const einsums::Tensor<double, 1> &beta_energies);
 };
 } // namespace einhf
 } // namespace psi

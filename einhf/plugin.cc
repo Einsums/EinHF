@@ -42,6 +42,7 @@
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
 #include "psi4/libqt/qt.h"
+#include "psi4/libscf_solver/rhf.h"
 #include "psi4/psi4-dec.h"
 
 static std::string to_lower(const std::string &str) {
@@ -83,73 +84,75 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
 
   omp_set_num_threads(Process::environment.get_n_threads());
 
+  std::string timer_str = "EinHF: " + options.get_str("COMPUTE") + " " + options.get_str("REFERENCE");
+
   if (!outfile) {
     printf("No output file.\n");
   }
   outfile->Printf("Initializing Einsums.\n");
   einsums::initialize();
-  if (to_lower(options.get_str("REFERENCE")) == "rhf" &&
+  if ((to_lower(options.get_str("REFERENCE")) == "rhf" ||
+       to_lower(options.get_str("REFERENCE")) == "rks") &&
       to_lower(options.get_str("COMPUTE")) == "cpu") {
-    timer_on("EinHF: CPU RHF");
     // Build an SCF object, and tell it to compute its energy
-    SharedWavefunction scfwfn =
-        std::shared_ptr<Wavefunction>(new EinsumsSCF(ref_wfn, options));
+    SharedWavefunction scfwfn = std::shared_ptr<Wavefunction>(new EinsumsSCF(
+        ref_wfn, static_cast<psi::scf::HF *>(ref_wfn.get())->functional(),
+        options));
 #pragma omp parallel
     {
 #pragma omp single
       { scfwfn->compute_energy(); }
     }
 
-    einsums::finalize(true);
-    timer_off("EinHF: CPU RHF");
+    einsums::finalize(false);
 
     return scfwfn;
-  } else if (to_lower(options.get_str("REFERENCE")) == "uhf" &&
+  } else if ((to_lower(options.get_str("REFERENCE")) == "uhf" ||
+              to_lower(options.get_str("REFERENCE")) == "uks") &&
              to_lower(options.get_str("COMPUTE")) == "cpu") {
-    timer_on("EinHF: CPU UHF");
     // Build an SCF object, and tell it to compute its energy
-    SharedWavefunction scfwfn =
-        std::shared_ptr<Wavefunction>(new EinsumsUHF(ref_wfn, options));
+    SharedWavefunction scfwfn = std::shared_ptr<Wavefunction>(new EinsumsUHF(
+        ref_wfn, static_cast<psi::scf::HF *>(ref_wfn.get())->functional(),
+        options));
 #pragma omp parallel
     {
 #pragma omp single
       { scfwfn->compute_energy(); }
     }
 
-    einsums::finalize(true);
-    timer_off("EinHF: CPU UHF");
+    einsums::finalize(false);
 
     return scfwfn;
-  } else if (to_lower(options.get_str("REFERENCE")) == "rhf" &&
+  } else if ((to_lower(options.get_str("REFERENCE")) == "rhf" ||
+              to_lower(options.get_str("REFERENCE")) == "rks") &&
              to_lower(options.get_str("COMPUTE")) == "gpu") {
-    timer_on("EinHF: GPU RHF");
     // Build an SCF object, and tell it to compute its energy
-    SharedWavefunction scfwfn =
-        std::shared_ptr<Wavefunction>(new GPUEinsumsSCF(ref_wfn, options));
+    SharedWavefunction scfwfn = std::shared_ptr<Wavefunction>(new GPUEinsumsSCF(
+        ref_wfn, static_cast<psi::scf::HF *>(ref_wfn.get())->functional(),
+        options));
 #pragma omp parallel
     {
 #pragma omp single
       { scfwfn->compute_energy(); }
     }
 
-    einsums::finalize(true);
-    timer_off("EinHF: GPU RHF");
+    einsums::finalize(false);
 
     return scfwfn;
-  } else if (to_lower(options.get_str("REFERENCE")) == "uhf" &&
+  } else if ((to_lower(options.get_str("REFERENCE")) == "uhf" ||
+              to_lower(options.get_str("REFERENCE")) == "uks") &&
              to_lower(options.get_str("COMPUTE")) == "gpu") {
-    timer_on("EinHF: GPU UHF");
     // Build an SCF object, and tell it to compute its energy
-    SharedWavefunction scfwfn =
-        std::shared_ptr<Wavefunction>(new GPUEinsumsUHF(ref_wfn, options));
+    SharedWavefunction scfwfn = std::shared_ptr<Wavefunction>(new GPUEinsumsUHF(
+        ref_wfn, static_cast<psi::scf::HF *>(ref_wfn.get())->functional(),
+        options));
 #pragma omp parallel
     {
 #pragma omp single
       { scfwfn->compute_energy(); }
     }
 
-    einsums::finalize(true);
-    timer_off("EinHF: GPU UHF");
+    einsums::finalize(false);
 
     return scfwfn;
   } else {
