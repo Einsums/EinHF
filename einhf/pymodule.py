@@ -52,13 +52,34 @@ def run_einhf(name, **kwargs):
 
     aux_basis = psi4.core.BasisSet.build(einhf_molecule, key = "DF_BASIS_SCF", target = psi4.core.get_option("SCF", "DF_BASIS_SCF"),
                                          fitrole = "JKFIT", other = psi4.core.get_global_option("BASIS"))
-    
-    new_wfn = psi4.core.Wavefunction.build(einhf_molecule, psi4.core.get_global_option('BASIS'))
+    func_str = "hf"
 
+    if "dft_functional" in kwargs :
+        func_str = kwargs["dft_functional"]
+
+    timer_str = "EinHF: " + psi4.core.get_global_option("COMPUTE").upper() + " "
+
+    if psi4.core.get_global_option("REFERENCE").lower() == "rhf" and func_str.lower() != "hf" :
+        timer_str = timer_str + "RKS"
+    elif psi4.core.get_global_option("REFERENCE").lower() == "uhf" and func_str.lower() != "hf" :
+        timer_str = timer_str + "UKS"
+    else :
+        timer_str = timer_str + psi4.core.get_global_option("REFERENCE")
+
+    psi4.core.timer_on(timer_str)
+        
+    #func, disp_type = psi4.dft.build_superfunctional(func_str, False)
+
+    ref_wfn = psi4.core.Wavefunction.build(einhf_molecule, psi4.core.get_global_option('BASIS'))
+
+    new_wfn = psi4.proc.scf_wavefunction_factory(func_str, ref_wfn, psi4.core.get_global_option("REFERENCE"), **kwargs)
+    
     new_wfn.set_basisset("DF_BASIS_SCF", aux_basis)
 
     einhf_wfn = psi4.core.plugin('einhf.so', new_wfn)
     psi4.set_variable('CURRENT ENERGY', einhf_wfn.energy())
+
+    psi4.core.timer_off(timer_str)
 
     if kwargs.get('ref_wfn', False):
         return (einhf_wfn, einhf_wfn.energy())

@@ -35,6 +35,8 @@
 #include "psi4/psi4-dec.h"
 #include "psi4/libmints/wavefunction.h"
 #include "psi4/libmints/matrix.h"
+#include "psi4/libfock/v.h"
+#include "psi4/libfunctional/superfunctional.h"
 
 namespace psi{
     // Forward declare several variables
@@ -46,7 +48,7 @@ namespace einhf{
 class EinsumsSCF : public Wavefunction {
   public:
     /// The constuctor
-    EinsumsSCF(SharedWavefunction ref_wfn, Options &options);
+    EinsumsSCF(SharedWavefunction ref_wfn, const std::shared_ptr<SuperFunctional> &functional, Options &options);
     /// The destuctor
     ~EinsumsSCF();
     /// Computes the SCF energy, and returns it
@@ -88,6 +90,8 @@ class EinsumsSCF : public Wavefunction {
     einsums::BlockTensor<double, 2> X_;
     /// The Fock Matrix
     einsums::BlockTensor<double, 2> F_;
+    /// The Two-electron non-exchange contributions.
+    einsums::BlockTensor<double, 2> JKwK_;
     /// The transformed Fock matrix
     einsums::BlockTensor<double, 2> Ft_;
     /// The MO coefficients
@@ -98,6 +102,10 @@ class EinsumsSCF : public Wavefunction {
     einsums::BlockTensor<double, 2> D_;
     /// The ubiquitous JK object
     std::shared_ptr<JK> jk_;
+    /// The functional.
+    std::shared_ptr<SuperFunctional> func_;
+    /// The functional exchange integrator.
+    std::shared_ptr<VBase> v_;
     /// Computes the electronic part of the SCF energy, and returns it
     double compute_electronic_energy();
     /// Sets up the integrals object

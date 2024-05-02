@@ -33,10 +33,13 @@
 #include "einsums.hpp"
 
 #include "psi4/libfock/jk.h"
+#include "psi4/libfock/v.h"
+#include "psi4/libfunctional/superfunctional.h"
 #include "psi4/libmints/basisset.h"
 #include "psi4/libmints/integral.h"
 #include "psi4/libmints/mintshelper.h"
 #include "psi4/libmints/molecule.h"
+#include "psi4/libmints/pointgrp.h"
 #include "psi4/libmints/sobasis.h"
 #include "psi4/libmints/vector.h"
 #include "psi4/liboptions/liboptions.h"
@@ -56,7 +59,9 @@ static std::string to_lower(const std::string &str) {
 namespace psi {
 namespace einhf {
 
-EinsumsUHF::EinsumsUHF(SharedWavefunction ref_wfn, Options &options)
+EinsumsUHF::EinsumsUHF(SharedWavefunction ref_wfn,
+                       const std::shared_ptr<SuperFunctional> &functional,
+                       Options &options)
     : Wavefunction(options) {
 
   timer_on("Setup Wavefunction");
@@ -65,7 +70,6 @@ EinsumsUHF::EinsumsUHF(SharedWavefunction ref_wfn, Options &options)
   shallow_copy(ref_wfn);
 
   print_ = options_.get_int("PRINT");
-  print_header();
 
   nirrep_ = sobasisset_->nirrep();
   nso_ = basisset_->nbf();
@@ -73,6 +77,9 @@ EinsumsUHF::EinsumsUHF(SharedWavefunction ref_wfn, Options &options)
   maxiter_ = options_.get_int("SCF_MAXITER");
   e_convergence_ = options_.get_double("E_CONVERGENCE");
   d_convergence_ = options_.get_double("D_CONVERGENCE");
+  func_ = functional;
+
+  print_header();
   if (options_.get_bool("DIIS")) {
     diis_max_iters_ = options_.get_int("DIIS_MAX_VECS");
   } else {
@@ -89,12 +96,14 @@ EinsumsUHF::EinsumsUHF(SharedWavefunction ref_wfn, Options &options)
   Ca_.set_name("Alpha MO Coefficients");
   Cocca_.set_name("Occupied Alpha MO Coefficients");
   Da_.set_name("Alpha Density Matrix");
+  JKwKa_.set_name("Alpha Two-electron Matrix");
 
   Fb_.set_name("Beta Fock Matrix");
   Ftb_.set_name("Transformed Beta Fock Matrix");
   Cb_.set_name("Beta MO Coefficients");
   Coccb_.set_name("Occupied Beta MO Coefficients");
   Db_.set_name("Beta Density Matrix");
+  JKwKb_.set_name("Beta Two-electron Matrix");
 
   for (int i = 0; i < this->nirrep_; i++) {
     X_.push_block(einsums::Tensor<double, 2>(molecule_->irrep_labels().at(i),
@@ -133,6 +142,13 @@ EinsumsUHF::EinsumsUHF(SharedWavefunction ref_wfn, Options &options)
     Da_.push_block(einsums::Tensor<double, 2>(
         molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
     Db_.push_block(einsums::Tensor<double, 2>(
+        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
+  }
+
+  for (int i = 0; i < this->nirrep_; i++) {
+    JKwKa_.push_block(einsums::Tensor<double, 2>(
+        molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
+    JKwKb_.push_block(einsums::Tensor<double, 2>(
         molecule_->irrep_labels().at(i), irrep_sizes_[i], irrep_sizes_[i]));
   }
   timer_off("Setup Wavefunction");
@@ -234,6 +250,13 @@ void EinsumsUHF::init_integrals() {
   jk_ = JK::build_JK(basisset_, mintshelper_->get_basisset("DF_BASIS_SCF"),
                      options_, false, total_memory);
 
+  jk_->set_do_K(func_->is_x_hybrid());
+  jk_->set_do_wK(func_->is_x_lrc());
+
+  jk_->set_omega(func_->x_omega());
+  jk_->set_omega_alpha(func_->x_alpha());
+  jk_->set_omega_beta(func_->x_beta());
+
   size_t jk_size = jk_->memory_estimate();
 
   if (jk_size < total_memory) {
@@ -242,12 +265,20 @@ void EinsumsUHF::init_integrals() {
     jk_->set_memory(total_memory * 0.9);
   }
 
+  // This is a very heavy compute object, lets give it 80% of our total memory
+  // jk_->set_memory(Process::environment.get_memory() * 0.8);
   jk_->initialize();
   jk_->print_header();
+
+  if (func_->needs_xc()) {
+    v_ = VBase::build_V(basisset_, func_, options_, "UV");
+    v_->initialize();
+    v_->print_header();
+  }
 }
 
 double EinsumsUHF::compute_electronic_energy(
-    const einsums::BlockTensor<double, 2> &F,
+    const einsums::BlockTensor<double, 2> &JKwK,
     const einsums::BlockTensor<double, 2> &D) {
   // Compute the electronic energy: (H + F)_pq * D_pq -> energy
 
@@ -255,7 +286,9 @@ double EinsumsUHF::compute_electronic_energy(
   auto temp = einsums::BlockTensor<double, 2>("temp", H_.vector_dims());
 
   temp = H_;
-  temp += F;
+  temp *= 2;
+
+  temp += JKwK;
 
   einsums::tensor_algebra::einsum(
       0.0, einsums::tensor_algebra::Indices{}, &e_tens, 1.0,
@@ -265,7 +298,17 @@ double EinsumsUHF::compute_electronic_energy(
       einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
                                        einsums::tensor_algebra::index::j},
       temp);
-  return (double)e_tens;
+  double out = (double)e_tens;
+
+  if (func_->needs_xc()) {
+    out += v_->quadrature_values()["FUNCTIONAL"];
+  }
+
+  if (func_->needs_vv10()) {
+    out += v_->quadrature_values()["VV10"];
+  }
+
+  return out + scalar_variable("-D ENERGY");
 }
 
 void EinsumsUHF::update_Cocc(const einsums::Tensor<double, 1> &alpha_energies,
@@ -415,9 +458,15 @@ double EinsumsUHF::compute_energy() {
 
   auto Ja = new einsums::BlockTensor<double, 2>("Alpha J matrix", irrep_sizes_);
   auto Ka = new einsums::BlockTensor<double, 2>("Alpha K matrix", irrep_sizes_);
+  auto wKa =
+      new einsums::BlockTensor<double, 2>("Alpha wK matrix", irrep_sizes_);
+  auto Va = new einsums::BlockTensor<double, 2>("Alpha V matrix", irrep_sizes_);
 
   auto Jb = new einsums::BlockTensor<double, 2>("Beta J matrix", irrep_sizes_);
   auto Kb = new einsums::BlockTensor<double, 2>("Beta K matrix", irrep_sizes_);
+  auto wKb =
+      new einsums::BlockTensor<double, 2>("Beta wK matrix", irrep_sizes_);
+  auto Vb = new einsums::BlockTensor<double, 2>("Beta V matrix", irrep_sizes_);
 
   std::deque<einsums::BlockTensor<double, 2>>
       *errorsa = new std::deque<einsums::BlockTensor<double, 2>>(0),
@@ -457,6 +506,12 @@ double EinsumsUHF::compute_energy() {
     Fb_ = H_;
     timer_off("Form Fb");
   }
+
+#pragma omp task depend(inout : this->JKwKa_)
+  { JKwKa_.zero(); }
+
+#pragma omp task depend(inout : this->JKwKb_)
+  { JKwKb_.zero(); }
 
 // Alpha
 #pragma omp task depend(in : this->Fa_, this->X_)                              \
@@ -548,12 +603,12 @@ double EinsumsUHF::compute_energy() {
   double e_new = e_nuc_;
 
   timer_on("Compute electronic energy");
-#pragma omp task depend(in : this->H_, this->Fa_, this->Da_)                   \
+#pragma omp task depend(in : this->H_, this->JKwKa_, this->Da_)                \
     depend(out : *elec_a)
-  { *elec_a = compute_electronic_energy(Fa_, Da_); }
-#pragma omp task depend(in : this->H_, this->Fb_, this->Db_)                   \
+  { *elec_a = compute_electronic_energy(JKwKa_, Da_); }
+#pragma omp task depend(in : this->H_, this->JKwKb_, this->Db_)                \
     depend(out : *elec_b)
-  { *elec_b = compute_electronic_energy(Fb_, Db_); }
+  { *elec_b = compute_electronic_energy(JKwKb_, Db_); }
 #pragma omp taskwait depend(in : *elec_a, *elec_b)
 
   e_new += (*elec_a + *elec_b) / 2;
@@ -617,6 +672,12 @@ double EinsumsUHF::compute_energy() {
       Fb_ = H_;
     }
 
+#pragma omp task depend(inout : this->JKwKa_)
+    { JKwKa_.zero(); }
+
+#pragma omp task depend(inout : this->JKwKb_)
+    { JKwKb_.zero(); }
+
     // The JK object handles all of the two electron integrals
     // To enhance efficiency it does use the density, but the orbitals
     // themselves D_uv = C_ui C_vj J_uv = I_uvrs D_rs K_uv = I_urvs D_rs
@@ -663,14 +724,10 @@ double EinsumsUHF::compute_energy() {
     Cl.push_back(CTempb);
     jk_->compute();
 
-    // Obtain the new J and K matrices
-    const std::vector<SharedMatrix> &J_mat = jk_->J();
-    const std::vector<SharedMatrix> &K_mat = jk_->K();
-
-    // Proceed as normal
-
 #pragma omp task depend(out : *Ja)
     {
+      timer_on("Form Ja");
+      const std::vector<SharedMatrix> &J_mat = jk_->J();
       for (int i = 0; i < nirrep_; i++) {
         if (irrep_sizes_[i] == 0) {
           continue;
@@ -681,10 +738,13 @@ double EinsumsUHF::compute_energy() {
           }
         }
       }
+      timer_off("Form Ja");
     }
 
 #pragma omp task depend(out : *Jb)
     {
+      timer_on("Form Jb");
+      const std::vector<SharedMatrix> &J_mat = jk_->J();
       for (int i = 0; i < nirrep_; i++) {
         if (irrep_sizes_[i] == 0) {
           continue;
@@ -695,52 +755,219 @@ double EinsumsUHF::compute_energy() {
           }
         }
       }
+      timer_off("Form Jb");
     }
 
+    if (func_->is_x_hybrid() && !(func_->is_x_lrc() && jk_->get_wcombine())) {
 #pragma omp task depend(out : *Ka)
-    {
-      for (int i = 0; i < nirrep_; i++) {
-        if (irrep_sizes_[i] == 0) {
-          continue;
-        }
-        for (int j = 0; j < irrep_sizes_[i]; j++) {
-          for (int k = 0; k < irrep_sizes_[i]; k++) {
-            (*Ka)[i](j, k) = K_mat[0]->get(i, j, k);
+      {
+        const std::vector<SharedMatrix> &K_mat = jk_->K();
+        double alpha = func_->x_alpha();
+        timer_on("Form Ka");
+#pragma omp parallel for
+        for (int i = 0; i < nirrep_; i++) {
+          if (irrep_sizes_[i] == 0) {
+            continue;
+          }
+#pragma omp parallel for
+          for (int j = 0; j < irrep_sizes_[i]; j++) {
+#pragma omp parallel for
+            for (int k = 0; k < irrep_sizes_[i]; k++) {
+              (*Ka)[i](j, k) = alpha * K_mat[0]->get(i, j, k);
+            }
           }
         }
+        timer_off("Form Ka");
       }
-    }
 
 #pragma omp task depend(out : *Kb)
-    {
+      {
+        const std::vector<SharedMatrix> &K_mat = jk_->K();
+        double alpha = func_->x_alpha();
+        timer_on("Form Kb");
+#pragma omp parallel for
+        for (int i = 0; i < nirrep_; i++) {
+          if (irrep_sizes_[i] == 0) {
+            continue;
+          }
+#pragma omp parallel for
+          for (int j = 0; j < irrep_sizes_[i]; j++) {
+#pragma omp parallel for
+            for (int k = 0; k < irrep_sizes_[i]; k++) {
+              (*Kb)[i](j, k) = alpha * K_mat[1]->get(i, j, k);
+            }
+          }
+        }
+        timer_off("Form Kb");
+      }
+    }
+
+    if (func_->is_x_lrc()) {
+#pragma omp task depend(out : *wKa)
+      {
+        const std::vector<SharedMatrix> &wK_mat = jk_->wK();
+        double beta = func_->x_beta();
+        timer_on("Form wKa");
+#pragma omp parallel for
+        for (int i = 0; i < nirrep_; i++) {
+          if (irrep_sizes_[i] == 0) {
+            continue;
+          }
+#pragma omp parallel for
+          for (int j = 0; j < irrep_sizes_[i]; j++) {
+#pragma omp parallel for
+            for (int k = 0; k < irrep_sizes_[i]; k++) {
+              (*wKa)[i](j, k) = beta * wK_mat[0]->get(i, j, k);
+            }
+          }
+        }
+        timer_off("Form wKa");
+      }
+
+#pragma omp task depend(out : *wKb)
+      {
+        const std::vector<SharedMatrix> &wK_mat = jk_->wK();
+        double beta = func_->x_beta();
+        timer_on("Form wKb");
+#pragma omp parallel for
+        for (int i = 0; i < nirrep_; i++) {
+          if (irrep_sizes_[i] == 0) {
+            continue;
+          }
+#pragma omp parallel for
+          for (int j = 0; j < irrep_sizes_[i]; j++) {
+#pragma omp parallel for
+            for (int k = 0; k < irrep_sizes_[i]; k++) {
+              (*wKb)[i](j, k) = beta * wK_mat[1]->get(i, j, k);
+            }
+          }
+        }
+        timer_off("Form wKb");
+      }
+    }
+
+    if (func_->needs_xc()) {
+
+      SharedMatrix Da_mat = std::make_shared<Matrix>(
+                       nirrep_, irrep_sizes_.data(), irrep_sizes_.data()),
+                   Va_mat = std::make_shared<Matrix>(
+                       nirrep_, irrep_sizes_.data(), irrep_sizes_.data());
+      SharedMatrix Db_mat = std::make_shared<Matrix>(
+                       nirrep_, irrep_sizes_.data(), irrep_sizes_.data()),
+                   Vb_mat = std::make_shared<Matrix>(
+                       nirrep_, irrep_sizes_.data(), irrep_sizes_.data());
+
       for (int i = 0; i < nirrep_; i++) {
         if (irrep_sizes_[i] == 0) {
           continue;
         }
         for (int j = 0; j < irrep_sizes_[i]; j++) {
           for (int k = 0; k < irrep_sizes_[i]; k++) {
-            (*Kb)[i](j, k) = K_mat[1]->get(i, j, k);
+            (*Da_mat.get())(i, j, k) = Da_[i](j, k);
+          }
+        }
+      }
+
+      for (int i = 0; i < nirrep_; i++) {
+        if (irrep_sizes_[i] == 0) {
+          continue;
+        }
+        for (int j = 0; j < irrep_sizes_[i]; j++) {
+          for (int k = 0; k < irrep_sizes_[i]; k++) {
+            (*Db_mat.get())(i, j, k) = Db_[i](j, k);
+          }
+        }
+      }
+
+      std::vector<SharedMatrix> D_vec{Da_mat, Db_mat};
+      std::vector<SharedMatrix> V_vec{Va_mat, Vb_mat};
+
+      v_->set_D(D_vec);
+      v_->compute_V(V_vec);
+
+#pragma omp task depend(out : *Va)
+      {
+        for (int i = 0; i < nirrep_; i++) {
+          if (irrep_sizes_[i] == 0) {
+            continue;
+          }
+          for (int j = 0; j < irrep_sizes_[i]; j++) {
+            for (int k = 0; k < irrep_sizes_[i]; k++) {
+              (*Va)[i](j, k) = Va_mat->get(i, j, k);
+            }
+          }
+        }
+      }
+
+#pragma omp task depend(out : *Vb)
+      {
+        for (int i = 0; i < nirrep_; i++) {
+          if (irrep_sizes_[i] == 0) {
+            continue;
+          }
+          for (int j = 0; j < irrep_sizes_[i]; j++) {
+            for (int k = 0; k < irrep_sizes_[i]; k++) {
+              (*Vb)[i](j, k) = Vb_mat->get(i, j, k);
+            }
           }
         }
       }
     }
 
-#pragma omp task depend(in : *Ja, *Jb, *Ka) depend(out : this -> Fa_)
+#pragma omp task depend(in : *Ja, *Jb) depend(out : this -> Fa_, this->JKwKa_)
     {
       Fa_ += *Ja;
       Fa_ += *Jb;
-      Fa_ -= *Ka;
-
-      timer_off("Form Fa");
+      JKwKa_ += *Ja;
+      JKwKa_ += *Jb;
+    }
+    if (func_->is_x_hybrid() && !(func_->is_x_lrc() && jk_->get_wcombine())) {
+#pragma omp task depend(in : *Ka) depend(out : this -> Fa_, this->JKwKa_)
+      {
+        Fa_ -= *Ka;
+        JKwKa_ -= *Ka;
+      }
     }
 
-#pragma omp task depend(in : *Ja, *Jb, *Kb) depend(out : this -> Fb_)
+    if (func_->is_x_lrc()) {
+#pragma omp task depend(in : *wKa) depend(out : this -> Fa_, this->JKwKa_)
+      {
+        Fa_ -= *wKa;
+        JKwKa_ -= *wKa;
+      }
+    }
+
+    if (func_->needs_xc()) {
+#pragma omp task depend(in : *Va) depend(out : this -> Fa_)
+      { Fa_ += *Va; }
+    }
+
+#pragma omp task depend(in : *Ja, *Jb) depend(out : this -> Fb_, this->JKwKb_)
     {
       Fb_ += *Ja;
       Fb_ += *Jb;
-      Fb_ -= *Kb;
+      JKwKb_ += *Ja;
+      JKwKb_ += *Jb;
+    }
+    if (func_->is_x_hybrid() && !(func_->is_x_lrc() && jk_->get_wcombine())) {
+#pragma omp task depend(in : *Kb) depend(out : this -> Fb_, this->JKwKb_)
+      {
+        Fb_ -= *Kb;
+        JKwKb_ -= *Kb;
+      }
+    }
 
-      timer_off("Form Fb");
+    if (func_->is_x_lrc()) {
+#pragma omp task depend(in : *wKb) depend(out : this -> Fb_, this->JKwKb_)
+      {
+        Fb_ -= *wKb;
+        JKwKb_ -= *wKb;
+      }
+    }
+
+    if (func_->needs_xc()) {
+#pragma omp task depend(in : *Vb) depend(out : this -> Fb_)
+      { Fb_ += *Vb; }
     }
 
 #pragma omp task depend(in : this->Da_, this->S_, this->Fa_)                   \
@@ -887,12 +1114,12 @@ double EinsumsUHF::compute_energy() {
 
     // Compute the energy
     timer_on("Compute electronic energy");
-#pragma omp task depend(in : this->H_, this->Fa_, this->Da_)                   \
+#pragma omp task depend(in : this->H_, this->JKwKa_, this->Da_)                \
     depend(out : *elec_a)
-    { *elec_a = compute_electronic_energy(Fa_, Da_); }
-#pragma omp task depend(in : this->H_, this->Fb_, this->Db_)                   \
+    { *elec_a = compute_electronic_energy(JKwKa_, Da_); }
+#pragma omp task depend(in : this->H_, this->JKwKb_, this->Db_)                \
     depend(out : *elec_b)
-    { *elec_b = compute_electronic_energy(Fb_, Db_); }
+    { *elec_b = compute_electronic_energy(JKwKb_, Db_); }
 #pragma omp taskwait depend(in : *elec_a, *elec_b)
 
     e_new = e_nuc_ + (*elec_a + *elec_b) / 2;
@@ -1185,6 +1412,8 @@ double EinsumsUHF::compute_energy() {
   delete SDFa;
   delete Ja;
   delete Ka;
+  delete wKa;
+  delete Va;
 
   delete coefsb;
   delete focksb;
@@ -1198,6 +1427,8 @@ double EinsumsUHF::compute_energy() {
   delete SDFb;
   delete Jb;
   delete Kb;
+  delete wKb;
+  delete Vb;
 
   delete dRMS_tensa;
   delete dRMS_tensb;
@@ -1230,15 +1461,15 @@ void EinsumsUHF::print_header() {
 
   molecule_->print();
 
-  //    outfile->Printf("  Running in %s symmetry.\n\n",
-  //    molecule_->point_group()->symbol().c_str());
+  outfile->Printf("  Running in %s symmetry.\n\n",
+                  molecule_->point_group()->symbol().c_str());
 
   molecule_->print_rotational_constants();
 
   outfile->Printf("  Nuclear repulsion = %20.15f\n\n",
                   molecule_->nuclear_repulsion_energy({0, 0, 0}));
-  // outfile->Printf("  Charge       = %d\n", charge_);
-  // outfile->Printf("  Multiplicity = %d\n", multiplicity_);
+  outfile->Printf("  Charge       = %d\n", molecule_->molecular_charge());
+  outfile->Printf("  Multiplicity = %d\n", molecule_->multiplicity());
   outfile->Printf("  Nalpha       = %d\n", nalpha_);
   outfile->Printf("  Nbeta        = %d\n\n", nbeta_);
 
@@ -1255,6 +1486,9 @@ void EinsumsUHF::print_header() {
   outfile->Printf("  ==> Primary Basis <==\n\n");
 
   basisset_->print_by_level("outfile", print_);
+
+  outfile->Printf("  ==> Functional <==\n\n");
+  func_->print("outfile", print_);
 }
 } // namespace einhf
 } // namespace psi

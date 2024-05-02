@@ -37,6 +37,7 @@
 #include "psi4/libmints/integral.h"
 #include "psi4/libmints/mintshelper.h"
 #include "psi4/libmints/molecule.h"
+#include "psi4/libmints/pointgrp.h"
 #include "psi4/libmints/sobasis.h"
 #include "psi4/libmints/vector.h"
 #include "psi4/liboptions/liboptions.h"
@@ -59,7 +60,9 @@ static std::string to_lower(const std::string &str) {
 namespace psi {
 namespace einhf {
 
-GPUEinsumsSCF::GPUEinsumsSCF(SharedWavefunction ref_wfn, Options &options)
+GPUEinsumsSCF::GPUEinsumsSCF(SharedWavefunction ref_wfn,
+                             const std::shared_ptr<SuperFunctional> &functional,
+                             Options &options)
     : Wavefunction(options) {
 
   timer_on("EinHF: Setup wavefunction");
@@ -68,7 +71,6 @@ GPUEinsumsSCF::GPUEinsumsSCF(SharedWavefunction ref_wfn, Options &options)
   shallow_copy(ref_wfn);
 
   print_ = options_.get_int("PRINT");
-  print_header();
 
   nirrep_ = sobasisset_->nirrep();
   nso_ = basisset_->nbf();
@@ -76,6 +78,9 @@ GPUEinsumsSCF::GPUEinsumsSCF(SharedWavefunction ref_wfn, Options &options)
   maxiter_ = options_.get_int("SCF_MAXITER");
   e_convergence_ = options_.get_double("E_CONVERGENCE");
   d_convergence_ = options_.get_double("D_CONVERGENCE");
+  func_ = functional;
+
+  print_header();
   if (options_.get_bool("DIIS")) {
     diis_max_iters_ = options_.get_int("DIIS_MAX_VECS");
   } else {
@@ -133,6 +138,12 @@ GPUEinsumsSCF::GPUEinsumsSCF(SharedWavefunction ref_wfn, Options &options)
         irrep_sizes_[i], irrep_sizes_[i]);
 
     D_.push_block(block);
+  }
+
+  for (int i = 0; i < this->nirrep_; i++) {
+    JKwK_.push_block(einsums::DeviceTensor<double, 2>(
+        molecule_->irrep_labels().at(i), einsums::detail::DEV_ONLY,
+        irrep_sizes_[i], irrep_sizes_[i]));
   }
 
   timer_off("EinHF: Setup wavefunction");
@@ -226,6 +237,13 @@ void GPUEinsumsSCF::init_integrals() {
   jk_ = JK::build_JK(basisset_, mintshelper_->get_basisset("DF_BASIS_SCF"),
                      options_, false, total_memory);
 
+  jk_->set_do_K(func_->is_x_hybrid());
+  jk_->set_do_wK(func_->is_x_lrc());
+
+  jk_->set_omega(func_->x_omega());
+  jk_->set_omega_alpha(func_->x_alpha());
+  jk_->set_omega_beta(func_->x_beta());
+
   size_t jk_size = jk_->memory_estimate();
 
   if (jk_size < total_memory) {
@@ -238,6 +256,12 @@ void GPUEinsumsSCF::init_integrals() {
   // jk_->set_memory(Process::environment.get_memory() * 0.8);
   jk_->initialize();
   jk_->print_header();
+
+  if (func_->needs_xc()) {
+    v_ = VBase::build_V(basisset_, func_, options_);
+    v_->initialize();
+    v_->print_header();
+  }
 }
 
 double GPUEinsumsSCF::compute_electronic_energy() {
@@ -248,7 +272,8 @@ double GPUEinsumsSCF::compute_electronic_energy() {
       "temp", einsums::detail::DEV_ONLY, H_.vector_dims());
 
   temp = H_;
-  temp += F_;
+  temp *= 2;
+  temp += JKwK_;
 
   einsums::tensor_algebra::einsum(
       0.0, einsums::tensor_algebra::Indices{}, &e_tens, 1.0,
@@ -259,7 +284,17 @@ double GPUEinsumsSCF::compute_electronic_energy() {
                                        einsums::tensor_algebra::index::j},
       temp);
 
-  return (double)e_tens;
+  double out = (double)e_tens;
+
+  if (func_->needs_xc()) {
+    out += v_->quadrature_values()["FUNCTIONAL"];
+  }
+
+  if (func_->needs_vv10()) {
+    out += v_->quadrature_values()["VV10"];
+  }
+
+  return out + scalar_variable("-D ENERGY");
 }
 
 void GPUEinsumsSCF::update_Cocc(
@@ -343,7 +378,6 @@ void GPUEinsumsSCF::compute_diis_fock(
 
   out->zero();
 
-#pragma omp parallel for
   for (int i = 0; i < coefs.size(); i++) {
     einsums::linear_algebra::axpy(coefs[i], focks[i], out);
   }
@@ -375,6 +409,10 @@ double GPUEinsumsSCF::compute_energy() {
       "J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
   auto K = new einsums::BlockDeviceTensor<double, 2>(
       "K matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto wK = new einsums::BlockDeviceTensor<double, 2>(
+      "wK matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
+  auto V = new einsums::BlockDeviceTensor<double, 2>(
+      "V matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
 
   std::deque<einsums::BlockDeviceTensor<double, 2>>
       *errors = new std::deque<einsums::BlockDeviceTensor<double, 2>>(0),
@@ -401,6 +439,8 @@ double GPUEinsumsSCF::compute_energy() {
     F_ = H_;
     timer_off("Set guess");
   }
+#pragma omp task depend(inout : this->JKwK_)
+  { JKwK_.zero(); }
 #pragma omp taskwait depend(in : this->F_, this->X_)
 
   timer_on("Form C");
@@ -487,6 +527,9 @@ double GPUEinsumsSCF::compute_energy() {
 #pragma omp task depend(in : this->H_) depend(out : this -> F_)
     { F_ = H_; }
 
+#pragma omp task depend(inout : this->JKwK_)
+    { JKwK_.zero(); }
+
     // The JK object handles all of the two electron integrals
     // To enhance efficiency it does use the density, but the orbitals
     // themselves D_uv = C_ui C_vj J_uv = I_uvrs D_rs K_uv = I_urvs D_rs
@@ -515,14 +558,9 @@ double GPUEinsumsSCF::compute_energy() {
     Cl.push_back(CTemp);
     jk_->compute();
 
-    // Obtain the new J and K matrices
-    const std::vector<SharedMatrix> &J_mat = jk_->J();
-    const std::vector<SharedMatrix> &K_mat = jk_->K();
-
-    // Proceed as normal
-
 #pragma omp task depend(out : *J)
     {
+      const std::vector<SharedMatrix> &J_mat = jk_->J();
       timer_on("Form J");
 #pragma omp parallel for
       for (int i = 0; i < nirrep_; i++) {
@@ -535,23 +573,102 @@ double GPUEinsumsSCF::compute_energy() {
       timer_off("Form J");
     }
 
+    if (func_->is_x_hybrid() && !(func_->is_x_lrc() && jk_->get_wcombine())) {
 #pragma omp task depend(out : *K)
-    {
-      timer_on("Form K");
+      {
+        const std::vector<SharedMatrix> &K_mat = jk_->K();
+        double alpha = func_->x_alpha();
+        timer_on("Form K");
 #pragma omp parallel for
-      for (int i = 0; i < nirrep_; i++) {
-        if (irrep_sizes_[i] == 0) {
-          continue;
+        for (int i = 0; i < nirrep_; i++) {
+          if (irrep_sizes_[i] == 0) {
+            continue;
+          }
+          K->block(i).read(K_mat[0]->get_pointer(i));
         }
-        K->block(i).read(K_mat[0]->get_pointer(i));
+        *K *= alpha;
+        timer_off("Form K");
       }
-      timer_off("Form K");
     }
 
-#pragma omp task depend(inout : *J) depend(out : this -> F_)
-    { F_ += *J; }
-#pragma omp task depend(inout : *K) depend(out : this -> F_)
-    { F_ -= *K; }
+    if (func_->is_x_lrc()) {
+#pragma omp task depend(out : *wK)
+      {
+        const std::vector<SharedMatrix> &wK_mat = jk_->wK();
+        double beta = func_->x_beta();
+        timer_on("Form wK");
+#pragma omp parallel for
+        for (int i = 0; i < nirrep_; i++) {
+          if (irrep_sizes_[i] == 0) {
+            continue;
+          }
+          wK->block(i).read(wK_mat[0]->get_pointer(i));
+        }
+        *wK *= beta;
+        timer_off("Form wK");
+      }
+    }
+
+    if (func_->needs_xc()) {
+#pragma omp task depend(in : this->D_) depend(out : *V)
+      {
+        SharedMatrix D_mat = std::make_shared<Matrix>(
+                         nirrep_, irrep_sizes_.data(), irrep_sizes_.data()),
+                     V_mat = std::make_shared<Matrix>(
+                         nirrep_, irrep_sizes_.data(), irrep_sizes_.data());
+
+        for (int i = 0; i < nirrep_; i++) {
+          if (irrep_sizes_[i] == 0) {
+            continue;
+          }
+          for (int j = 0; j < irrep_sizes_[i]; j++) {
+            for (int k = 0; k < irrep_sizes_[i]; k++) {
+              (*D_mat.get())(i, j, k) = D_[i](j, k);
+            }
+          }
+        }
+
+        std::vector<SharedMatrix> D_vec{D_mat};
+        std::vector<SharedMatrix> V_vec{V_mat};
+
+        v_->set_D(D_vec);
+        v_->compute_V(V_vec);
+
+#pragma omp parallel for
+        for (int i = 0; i < nirrep_; i++) {
+          if (irrep_sizes_[i] == 0) {
+            continue;
+          }
+          V->block(i).read(V_mat->get_pointer(i));
+        }
+      }
+    }
+
+#pragma omp task depend(in : *J) depend(out : this -> F_, this->JKwK_)
+    {
+      F_ += *J;
+      JKwK_ += *J;
+    }
+    if (func_->is_x_hybrid() && !(func_->is_x_lrc() && jk_->get_wcombine())) {
+#pragma omp task depend(in : *K) depend(out : this -> F_, this->JKwK_)
+      {
+        F_ -= *K;
+        JKwK_ -= *K;
+      }
+    }
+
+    if (func_->is_x_lrc()) {
+#pragma omp task depend(in : *wK) depend(out : this -> F_, this->JKwK_)
+      {
+        F_ -= *wK;
+        JKwK_ -= *wK;
+      }
+    }
+
+    if (func_->needs_xc()) {
+#pragma omp task depend(in : *V) depend(out : this -> F_)
+      { F_ += *V; }
+    }
 
 // I don't think this will cause a slowdown since the next part will do the same
 // thing.
@@ -627,7 +744,7 @@ double GPUEinsumsSCF::compute_energy() {
     }
 
 // Compute the energy
-#pragma omp taskwait depend(in : this->F_, this->D_, this->H_)
+#pragma omp taskwait depend(in : this->JKwK_, this->D_, this->H_)
     timer_on("Compute electronic energy");
     e_new = e_nuc_ + compute_electronic_energy();
     timer_off("Compute electronic energy");
@@ -797,6 +914,8 @@ double GPUEinsumsSCF::compute_energy() {
 
   delete J;
   delete K;
+  delete wK;
+  delete V;
   delete dRMS_tens;
 
   timer_off("EinHF: Computing energy");
@@ -824,15 +943,15 @@ void GPUEinsumsSCF::print_header() {
 
   molecule_->print();
 
-  //    outfile->Printf("  Running in %s symmetry.\n\n",
-  //    molecule_->point_group()->symbol().c_str());
+  outfile->Printf("  Running in %s symmetry.\n\n",
+                  molecule_->point_group()->symbol().c_str());
 
   molecule_->print_rotational_constants();
 
   outfile->Printf("  Nuclear repulsion = %20.15f\n\n",
                   molecule_->nuclear_repulsion_energy({0, 0, 0}));
-  // outfile->Printf("  Charge       = %d\n", charge_);
-  // outfile->Printf("  Multiplicity = %d\n", multiplicity_);
+  outfile->Printf("  Charge       = %d\n", molecule_->molecular_charge());
+  outfile->Printf("  Multiplicity = %d\n", molecule_->multiplicity());
   outfile->Printf("  Nalpha       = %d\n", nalpha_);
   outfile->Printf("  Nbeta        = %d\n\n", nbeta_);
 
@@ -849,6 +968,9 @@ void GPUEinsumsSCF::print_header() {
   outfile->Printf("  ==> Primary Basis <==\n\n");
 
   basisset_->print_by_level("outfile", print_);
+
+  outfile->Printf("  ==> Functional <==\n\n");
+  func_->print("outfile", print_);
 }
 } // namespace einhf
 } // namespace psi
