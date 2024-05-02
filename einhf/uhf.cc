@@ -973,6 +973,7 @@ double EinsumsUHF::compute_energy() {
 #pragma omp task depend(in : this->Da_, this->S_, this->Fa_)                   \
     depend(out : *Temp1a, *FDSa)
     {
+      timer_off("Form Fa");
 
       // Compute the orbital gradient, FDS-SDF
       einsums::linear_algebra::gemm<false, false>(1.0, Da_, S_, 0.0, Temp1a);
@@ -989,6 +990,7 @@ double EinsumsUHF::compute_energy() {
 #pragma omp task depend(in : this->Db_, this->S_, this->Fb_)                   \
     depend(out : *Temp1b, *FDSb)
     {
+      timer_off("Form Fb");
 
       // Compute the orbital gradient, FDS-SDF
       einsums::linear_algebra::gemm<false, false>(1.0, Db_, S_, 0.0, Temp1b);
