@@ -28,6 +28,8 @@
  * @END LICENSE
  */
 
+#pragma once
+
 #include <deque>
 #include <vector>
 

@@ -69,9 +69,9 @@ if(BUILD_GPU)
         set(CURSES_NEED_NCURSES True)
         find_package(Curses)
 
-add_psi4_plugin(einhf plugin.cc rhf.cc rhf-gpu.hip uhf.cc uhf-gpu.hip)
+add_psi4_plugin(einhf plugin.cc rhf.cc rhf-gpu.hip uhf.cc uhf-gpu.hip rmp2.cc)
 else()
-add_psi4_plugin(einhf plugin.cc rhf.cc uhf.cc)
+add_psi4_plugin(einhf plugin.cc rhf.cc uhf.cc rmp2.cc)
 endif()
 
 target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,Clang>:-O0 -gdwarf-4 -ggdb -g3>>)
@@ -80,3 +80,9 @@ target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AN
 
 target_link_libraries(einhf PUBLIC Einsums::einsums)
 target_include_directories(einhf PUBLIC ${Einsums_INCLUDE_DIRS})
+
+get_property(fmt_INCLUDE_DIRS TARGET fmt::fmt PROPERTY INTERFACE_INCLUDE_DIRECTORIES)
+
+message("fmt_INCLUDE_DIRS=${fmt_INCLUDE_DIRS}")
+
+target_include_directories(einhf BEFORE PUBLIC ${fmt_INCLUDE_DIRS})

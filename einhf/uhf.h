@@ -28,6 +28,8 @@
  * @END LICENSE
  */
 
+#pragma once
+
 #include "einsums.hpp"
 #include <deque>
 #include <vector>
