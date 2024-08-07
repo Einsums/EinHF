@@ -27,6 +27,8 @@ psi4.core.timer_on("Psi4 RHF")
 E1 = energy("hf")
 psi4.core.timer_off("Psi4 RHF")
 
+set PRINT 4
+
 E2 = energy('einhf')
 
 assert(abs(E2 - E1) < 1e-6)

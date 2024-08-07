@@ -69,9 +69,10 @@ if(BUILD_GPU)
         set(CURSES_NEED_NCURSES True)
         find_package(Curses)
 
-add_psi4_plugin(einhf plugin.cc rhf.cc rhf-gpu.hip uhf.cc uhf-gpu.hip rmp2.cc)
+add_psi4_plugin(einhf plugin.cc rhf.cc rhf-gpu.hip uhf.cc uhf-gpu.hip rmp2.cc ump2.cc)
+target_compile_definitions(einhf PUBLIC -DBUILD_GPU)
 else()
-add_psi4_plugin(einhf plugin.cc rhf.cc uhf.cc rmp2.cc)
+add_psi4_plugin(einhf plugin.cc rhf.cc uhf.cc rmp2.cc ump2.cc)
 endif()
 
 target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,Clang>:-O0 -gdwarf-4 -ggdb -g3>>)

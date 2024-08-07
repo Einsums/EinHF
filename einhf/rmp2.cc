@@ -68,10 +68,10 @@ using namespace einsums::tensor_algebra;
 namespace psi {
 namespace einhf {
 
-EinsumsRMP2::EinsumsRMP2(std::shared_ptr<EinsumsSCF> ref_wfn, Options &options)
-    : Wavefunction(options) {
+EinsumsRMP2::EinsumsRMP2(std::shared_ptr<EinsumsRHF> ref_wfn, Options &options)
+    : EinsumsRHF(*ref_wfn, options) {
 
-  timer_on("EinHF: Setup wavefunction");
+  timer_on("EinHF: Setup MP2 wavefunction");
 
   // Shallow copy useful objects from the passed in wavefunction
   shallow_copy(ref_wfn);
@@ -99,16 +99,16 @@ EinsumsRMP2::EinsumsRMP2(std::shared_ptr<EinsumsSCF> ref_wfn, Options &options)
 
   init_integrals();
 
-  H_ = ref_wfn->getH();
-  S_ = ref_wfn->getS();
-  X_ = ref_wfn->getX();
-  F_ = ref_wfn->getF();
-  Ft_ = ref_wfn->getFt();
-  C_ = ref_wfn->getC();
-  Cocc_ = ref_wfn->getCocc();
-  D_ = ref_wfn->getD();
+  // H_ = ref_wfn->getH();
+  // S_ = ref_wfn->getS();
+  // X_ = ref_wfn->getX();
+  // F_ = ref_wfn->getF();
+  // Ft_ = ref_wfn->getFt();
+  // C_ = ref_wfn->getC();
+  // Cocc_ = ref_wfn->getCocc();
+  // D_ = ref_wfn->getD();
 
-  timer_off("EinHF: Setup wavefunction");
+  timer_off("EinHF: Setup MP2 wavefunction");
 }
 
 EinsumsRMP2::~EinsumsRMP2() {}
@@ -142,15 +142,8 @@ void EinsumsRMP2::init_integrals() {
     throw PSIEXCEPTION("This is only an RMP2 code, but you gave it an odd "
                        "number of electrons.  Try again!");
   }
-  ndocc_ = nelec / 2;
-
-  outfile->Printf("    There are %d doubly occupied orbitals\n", ndocc_);
-  molecule_->print();
-  if (print_ > 1) {
-    basisset_->print_detail();
-    options_.print();
-  }
-
+  // ndocc_ = nelec / 2;
+  
   tei_ = einsums::TiledTensor<double, 4>("TEI", irrep_sizes_);
   teit_ =
       einsums::TiledTensor<double, 4>("TEI", occ_per_irrep_, unocc_per_irrep_,

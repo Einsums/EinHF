@@ -105,7 +105,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
        to_lower(options.get_str("REFERENCE")) == "rks") &&
       to_lower(options.get_str("COMPUTE")) == "cpu") {
     // Build an SCF object, and tell it to compute its energy
-    scfwfn = std::shared_ptr<Wavefunction>(new EinsumsSCF(
+    scfwfn = std::shared_ptr<Wavefunction>(new EinsumsRHF(
         ref_wfn, static_cast<psi::scf::HF *>(ref_wfn.get())->functional(),
         options));
 #pragma omp parallel
@@ -126,7 +126,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
 #pragma omp single
       { scfwfn->compute_energy(); }
     }
-#ifdef __HIP__
+#ifdef BUILD_GPU
   } else if ((to_lower(options.get_str("REFERENCE")) == "rhf" ||
               to_lower(options.get_str("REFERENCE")) == "rks") &&
              to_lower(options.get_str("COMPUTE")) == "gpu") {
@@ -165,7 +165,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
     if (to_lower(options.get_str("REFERENCE")) == "rhf" &&
         to_lower(options.get_str("COMPUTE")) == "cpu") {
       mp2wfn = std::shared_ptr<Wavefunction>(new EinsumsRMP2(
-          std::static_pointer_cast<EinsumsSCF>(scfwfn), options));
+          std::static_pointer_cast<EinsumsRHF>(scfwfn), options));
 #pragma omp parallel
       {
 #pragma omp single

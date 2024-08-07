@@ -62,7 +62,7 @@ public:
   }
 
   double call(const std::array<int, 4> &inds) const override {
-    return std::apply(*_evals, inds);
+    return 1.0 / ((*_evals)(inds[0]) + (*_evals)(inds[2]) - (*_evals)(inds[1]) - (*_evals)(inds[3]));
   }
 
   const einsums::Tensor<double, 1> *get_evals() const { return _evals; }
@@ -70,85 +70,41 @@ public:
   void set_evals(const einsums::Tensor<double, 1> *evals) { _evals = evals; }
 };
 
-class EinsumsRMP2 : public Wavefunction {
+class EinsumsRMP2 : public EinsumsRHF {
 public:
   /// The constuctor
-  EinsumsRMP2(std::shared_ptr<EinsumsSCF> ref_wfn, Options &options);
+  EinsumsRMP2(std::shared_ptr<EinsumsRHF> ref_wfn, Options &options);
   /// The destuctor
   ~EinsumsRMP2();
   /// Computes the SCF energy, and returns it
-  double compute_energy();
+  virtual double compute_energy() override;
 
-  void print_header();
+  virtual void print_header() override;
 
-  const einsums::BlockTensor<double, 2> &getH() const { return H_; }
-  const einsums::BlockTensor<double, 2> &getS() const { return S_; }
-  const einsums::BlockTensor<double, 2> &getX() const { return X_; }
-  const einsums::BlockTensor<double, 2> &getF() const { return F_; }
-  const einsums::BlockTensor<double, 2> &getFt() const { return Ft_; }
-  const einsums::BlockTensor<double, 2> &getC() const { return C_; }
-  const einsums::BlockTensor<double, 2> &getCocc() const { return Cocc_; }
-  const einsums::BlockTensor<double, 2> &getD() const { return D_; }
-  const einsums::Tensor<double, 1> &getEvals() const { return evals_; }
+  const einsums::TiledTensor<double, 4> &getTei() const { return tei_; }
+  const einsums::TiledTensor<double, 4> &getTeiTrans() const { return teit_; }
+  const einsums::TiledTensor<double, 4> &getMP2Amps() const {
+    return MP2_amps_;
+  }
+  const einsums::TiledTensor<double, 4> &getDenominator() const {
+    return denominator_;
+  }
 
-  einsums::BlockTensor<double, 2> &getH() { return H_; }
-  einsums::BlockTensor<double, 2> &getS() { return S_; }
-  einsums::BlockTensor<double, 2> &getX() { return X_; }
-  einsums::BlockTensor<double, 2> &getF() { return F_; }
-  einsums::BlockTensor<double, 2> &getFt() { return Ft_; }
-  einsums::BlockTensor<double, 2> &getC() { return C_; }
-  einsums::BlockTensor<double, 2> &getCocc() { return Cocc_; }
-  einsums::BlockTensor<double, 2> &getD() { return D_; }
-  einsums::Tensor<double, 1> &getEvals() { return evals_; }
+  einsums::TiledTensor<double, 4> &getTei() { return tei_; }
+  einsums::TiledTensor<double, 4> &getTeiTrans() { return teit_; }
+  einsums::TiledTensor<double, 4> &getMP2Amps() { return MP2_amps_; }
+  einsums::TiledTensor<double, 4> &getDenominator() { return denominator_; }
 
 protected:
-  /// The amount of information to print to the output file
-  int print_;
-  /// The number of doubly occupied orbitals
-  int ndocc_;
-
   /// The occupation per irrep.
-  std::vector<int> occ_per_irrep_, unocc_per_irrep_;
-  /// The sizes of each irrep.
-  std::vector<int> irrep_sizes_;
+  std::vector<int> unocc_per_irrep_;
   // Offsets for the irreps.
   std::vector<int> irrep_offsets_;
-
-  /// The number of symmetrized spin orbitals
-  int nso_;
-  /// The maximum number of iterations
-  int maxiter_;
-  /// The number of DIIS iterations to hold.
-  int diis_max_iters_;
-  /// The nuclear repulsion energy
-  double e_nuc_;
-  /// The convergence criterion for the density
-  double d_convergence_;
-  /// The convergence criterion for the energy
-  double e_convergence_;
-  /// The one electron integrals
-  einsums::BlockTensor<double, 2> H_;
-  /// The overlap matrix
-  einsums::BlockTensor<double, 2> S_;
-  /// The inverse square root of the overlap matrix
-  einsums::BlockTensor<double, 2> X_;
-  /// The Fock Matrix
-  einsums::BlockTensor<double, 2> F_;
-  /// The transformed Fock matrix
-  einsums::BlockTensor<double, 2> Ft_;
-  /// The MO coefficients
-  einsums::BlockTensor<double, 2> C_;
-  /// The occupied MO coefficients
-  einsums::BlockTensor<double, 2> Cocc_;
-  /// The density matrix
-  einsums::BlockTensor<double, 2> D_;
-  /// The orbital energies.
-  einsums::Tensor<double, 1> evals_;
   /// The two-electron integrals
   einsums::TiledTensor<double, 4> tei_;
   /// Transformed two-electron integrals
   einsums::TiledTensor<double, 4> teit_;
-  ///
+  /// MP2 amplitudes.
   einsums::TiledTensor<double, 4> MP2_amps_;
   /// Function tensor for the MP2 denominator.
   einsums::TiledTensor<double, 4> denominator_;

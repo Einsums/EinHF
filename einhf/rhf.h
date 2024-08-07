@@ -47,16 +47,21 @@ class JK;
 
 namespace einhf {
 
-class EinsumsSCF : public Wavefunction {
+class EinsumsRHF : public Wavefunction {
 public:
   /// The constuctor
-  EinsumsSCF(SharedWavefunction ref_wfn,
+  EinsumsRHF(SharedWavefunction ref_wfn,
              const std::shared_ptr<SuperFunctional> &functional,
              Options &options);
+
+  /// Copy constructor.
+  EinsumsRHF(const EinsumsRHF &ref_wfn);
+  /// Another constructor.
+  EinsumsRHF(const EinsumsRHF &ref_wfn, Options &options);
   /// The destuctor
-  ~EinsumsSCF();
+  ~EinsumsRHF();
   /// Computes the SCF energy, and returns it
-  double compute_energy();
+  virtual double compute_energy();
 
   void
   compute_diis_coefs(const std::deque<einsums::BlockTensor<double, 2>> &errors,
@@ -67,7 +72,7 @@ public:
                     const std::deque<einsums::BlockTensor<double, 2>> &focks,
                     einsums::BlockTensor<double, 2> *out) const;
 
-  void print_header();
+  virtual void print_header();
 
   const einsums::BlockTensor<double, 2> &getH() const { return H_; }
   const einsums::BlockTensor<double, 2> &getS() const { return S_; }

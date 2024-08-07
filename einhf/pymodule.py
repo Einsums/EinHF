@@ -39,6 +39,8 @@ def run_einhf(name, **kwargs):
     >>> energy('einhf')
 
     """
+
+    print(f"Plugin load status: {psi4.core.plugin_load('einhf.so')}")
     
     psi4.core.reopen_outfile()
     lowername = name.lower()
