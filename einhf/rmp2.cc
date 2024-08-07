@@ -167,7 +167,7 @@ void EinsumsRMP2::init_integrals() {
 
   timer_off("EinHF: Generating Integrals");
 
-  timer_on("EinHF: Transforming Two-electron Integrals.");
+  timer_on("EinHF: Transforming Two-electron Integrals");
 
   TiledTensor<double, 4> temp1("Transform temp1", irrep_sizes_),
       temp2("Transform temp2", irrep_sizes_);
