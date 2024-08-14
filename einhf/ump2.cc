@@ -28,8 +28,8 @@
  * @END LICENSE
  */
 
-#include "uhf.h"
 #include "ump2.h"
+#include "uhf.h"
 
 #include "einsums.hpp"
 #include "einsums/Tensor.hpp"
@@ -69,26 +69,34 @@ namespace psi {
 namespace einhf {
 
 EinsumsUMP2::EinsumsUMP2(std::shared_ptr<EinsumsUHF> ref_wfn, Options &options)
-    : EinsumsUHF(*ref_wfn, options) {
+    : Wavefunction(options) {
 
-  timer_on("EinHF: Setup MP2 wavefunction");
+  timer_on("EinHF: Setup UMP2 wavefunction");
 
   // Shallow copy useful objects from the passed in wavefunction
   shallow_copy(ref_wfn);
 
-  // energy_ = ref_wfn->energy();
+  energy_ = ref_wfn->energy();
 
-  // evals_ = ref_wfn->getEvals();
+  evalsa_ = ref_wfn->getEvalsa();
+  evalsa_.set_name("Alpha Orbital energies");
+  evalsb_ = ref_wfn->getEvalsb();
+  evalsb_.set_name("Beta Orbital energies");
 
-  // print_ = options_.get_int("PRINT");
+  print_ = options_.get_int("PRINT");
 
-  // nirrep_ = sobasisset_->nirrep();
-  // nso_ = basisset_->nbf();
+  nirrep_ = sobasisset_->nirrep();
+  nso_ = basisset_->nbf();
+  aocc_per_irrep_ = ref_wfn->getAOccPerIrrep();
+  bocc_per_irrep_ = ref_wfn->getBOccPerIrrep();
+  irrep_sizes_ = ref_wfn->getIrrepSizes();
   aunocc_per_irrep_ = std::vector<int>(nirrep_);
-  irrep_offsets_ = std::vector<int>(nirrep_);
-  irrep_offsets_[0] = 0;
   bunocc_per_irrep_ = std::vector<int>(nirrep_);
   irrep_offsets_ = std::vector<int>(nirrep_);
+  irrep_offsets_[0] = 0;
+
+  naocc_ = ref_wfn->getNAocc();
+  nbocc_ = ref_wfn->getNBocc();
 
   for (int i = 0; i < nirrep_; i++) {
     aunocc_per_irrep_[i] = irrep_sizes_.at(i) - aocc_per_irrep_.at(i);
@@ -100,24 +108,79 @@ EinsumsUMP2::EinsumsUMP2(std::shared_ptr<EinsumsUHF> ref_wfn, Options &options)
 
   print_header();
 
+  S_ = ref_wfn->getS();
+  Fa_ = ref_wfn->getFa();
+  Fta_ = ref_wfn->getFta();
+  Fb_ = ref_wfn->getFb();
+  Ftb_ = ref_wfn->getFtb();
+  Ca_ = ref_wfn->getCa();
+  Cocca_ = ref_wfn->getCocca();
+  Da_ = ref_wfn->getDa();
+  Cb_ = ref_wfn->getCb();
+  Coccb_ = ref_wfn->getCoccb();
+  Db_ = ref_wfn->getDb();
+
+  for (int i = 0; i < S_.num_blocks(); i++) {
+    irrep_names_.push_back(ref_wfn->getS()[i].name());
+    S_[i].set_name(ref_wfn->getS()[i].name());
+    Fa_[i].set_name(ref_wfn->getS()[i].name());
+    Fta_[i].set_name(ref_wfn->getS()[i].name());
+    Ca_[i].set_name(ref_wfn->getS()[i].name());
+    Cocca_[i].set_name(ref_wfn->getS()[i].name());
+    Da_[i].set_name(ref_wfn->getS()[i].name());
+    Fb_[i].set_name(ref_wfn->getS()[i].name());
+    Ftb_[i].set_name(ref_wfn->getS()[i].name());
+    Cb_[i].set_name(ref_wfn->getS()[i].name());
+    Coccb_[i].set_name(ref_wfn->getS()[i].name());
+    Db_[i].set_name(ref_wfn->getS()[i].name());
+  }
+
+  S_.set_name("Overlap");
+  Fa_.set_name("Alpha Fock matrix");
+  Fta_.set_name("Alpha Transformed Fock matrix");
+  Ca_.set_name("Alpha MO coefficients");
+  Cocca_.set_name("AlphaOccupied MO coefficients");
+  Da_.set_name("Alpha Density matrix");
+  Fb_.set_name("Beta Fock matrix");
+  Ftb_.set_name("Beta Transformed Fock matrix");
+  Cb_.set_name("Beta MO coefficients");
+  Coccb_.set_name("Beta Occupied MO coefficients");
+  Db_.set_name("Beta Density matrix");
+
+  outfile->Printf("    Number of orbitals: %d\n", nso_);
+  outfile->Printf("    Orbital Occupation:\n         \t");
+
+  for (int i = 0; i < S_.num_blocks(); i++) {
+    outfile->Printf("%4s\t", S_.name(i).c_str());
+  }
+
+  outfile->Printf("\n    DOCC \t");
+  for (int i = 0; i < bocc_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", bocc_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    SOCC \t");
+
+  for (int i = 0; i < aocc_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", aocc_per_irrep_[i] - bocc_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    Virt \t");
+  for (int i = 0; i < bocc_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i] - aocc_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    Total\t");
+
+  for (int i = 0; i < aocc_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i]);
+  }
+
+  outfile->Printf("\n");
+
   init_integrals();
 
-  // H_ = ref_wfn->getH();
-  // S_ = ref_wfn->getS();
-  // X_ = ref_wfn->getX();
-  // Fa_ = ref_wfn->getFa();
-  // Fta_ = ref_wfn->getFta();
-  // Ca_ = ref_wfn->getCa();
-  // Cocca_ = ref_wfn->getCocca();
-  // Da_ = ref_wfn->getDa();
-
-  // Fb_ = ref_wfn->getFb();
-  // Ftb_ = ref_wfn->getFtb();
-  // Cb_ = ref_wfn->getCb();
-  // Coccb_ = ref_wfn->getCoccb();
-  // Db_ = ref_wfn->getDb();
-
-  timer_off("EinHF: Setup MP2 wavefunction");
+  timer_off("EinHF: Setup UMP2 wavefunction");
 }
 
 EinsumsUMP2::~EinsumsUMP2() {}
@@ -128,179 +191,37 @@ static void calculate_tei(std::shared_ptr<TwoBodySOInt> ints,
                        int iirel, int jjirrep, int jjrel, int kkirrep,
                        int kkrel, int llirrep, int llrel, double val) {
     (*out)(iiabs, jjabs, kkabs, llabs) = val;
+    (*out)(iiabs, jjabs, llabs, kkabs) = val;
+    (*out)(jjabs, iiabs, kkabs, llabs) = val;
+    (*out)(jjabs, iiabs, llabs, kkabs) = val;
+    (*out)(kkabs, llabs, iiabs, jjabs) = val;
+    (*out)(kkabs, llabs, jjabs, iiabs) = val;
+    (*out)(llabs, kkabs, iiabs, jjabs) = val;
+    (*out)(llabs, kkabs, jjabs, iiabs) = val;
   };
   ints->compute_integrals(functor);
 }
 
-// true is alpha, false is beta.
-void EinsumsUMP2::setup_spin_integrals(bool spin1, bool spin2) {
-  if (!spin1 && spin2) {
-    throw PSIEXCEPTION(
-        "setup_spin_integrals: Only allowed combinations are true+true "
-        "(alpha-alpha), true+false (alpha-beta), and false+false (beta-beta). "
-        "False+true (beta-alpha) is handled through symmetry.");
+void EinsumsUMP2::set_tile(const TiledTensor<double, 4> &temp,
+                           TiledTensor<double, 4> &teit,
+                           UMP2ScaleTensor &denominator,
+                           const std::vector<int> &aocc_per_irrep,
+                           const std::vector<int> &bocc_per_irrep, int i, int a,
+                           int j, int b) {
+  if (aocc_per_irrep[i] != 0 && aocc_per_irrep[a] != irrep_sizes_[a] &&
+      bocc_per_irrep[j] != 0 && bocc_per_irrep[b] != irrep_sizes_[b] &&
+      tei_.has_tile(i, a, j, b)) {
+    std::string tile_name = "(" + S_[i].name() + ", " + S_[a].name() + ", " +
+                            S_[j].name() + ", " + S_[b].name() + ")";
+
+    teit.tile(i, a, j, b) = temp.tile(i, a, j, b)(
+        Range{0, aocc_per_irrep[i]}, Range{aocc_per_irrep[a], irrep_sizes_[a]},
+        Range{0, bocc_per_irrep[j]}, Range{bocc_per_irrep[b], irrep_sizes_[b]});
+    denominator.tile(i, a, j, b);
+
+    teit.tile(i, a, j, b).set_name(tile_name);
+    denominator.tile(i, a, j, b).set_name(tile_name);
   }
-  // The orbital coefficient matrices.
-  const BlockTensor<double, 2> &C1 = (spin1) ? Ca_ : Cb_, &C2 = (spin2) ? Ca_ : Cb_;
-
-  TiledTensor<double, 4> temp1("Transform temp1", irrep_sizes_),
-      temp2("Transform temp2", irrep_sizes_);
-
-  TiledTensor<double, 4> &teit =
-                             (spin1) ? ((spin2) ? teitaa_ : teitab_) : teitbb_,
-                         &MP2_amps = (spin1)
-                                         ? ((spin2) ? MP2_ampsaa_ : MP2_ampsab_)
-                                         : MP2_ampsbb_,
-                         &denominator = (spin1) ? ((spin2) ? denominatoraa_
-                                                           : denominatorab_)
-                                                : denominatorbb_;
-  // Sizes.
-  const std::vector<int> &occ_per_irrep1 =
-                             (spin1) ? aocc_per_irrep_ : bocc_per_irrep_,
-                         &occ_per_irrep2 =
-                             (spin2) ? aocc_per_irrep_ : bocc_per_irrep_,
-                         &unocc_per_irrep1 =
-                             (spin1) ? aunocc_per_irrep_ : bunocc_per_irrep_,
-                         &unocc_per_irrep2 =
-                             (spin2) ? aunocc_per_irrep_ : bunocc_per_irrep_;
-
-  einsum(Indices{index::p, index::q, index::r, index::s}, &temp1,
-         Indices{index::m, index::q, index::r, index::s}, tei_,
-         Indices{index::m, index::p}, C1);
-  einsum(Indices{index::p, index::q, index::r, index::s}, &temp2,
-         Indices{index::p, index::m, index::r, index::s}, temp1,
-         Indices{index::m, index::q}, C1);
-  einsum(Indices{index::p, index::q, index::r, index::s}, &temp1,
-         Indices{index::p, index::q, index::m, index::s}, temp2,
-         Indices{index::m, index::r}, C2);
-  einsum(Indices{index::p, index::q, index::r, index::s}, &temp2,
-         Indices{index::p, index::q, index::r, index::m}, temp1,
-         Indices{index::m, index::s}, C2);
-
-  UMP2ScaleFunction full_denom("MP2 denominator",
-                               &((spin1) ? evalsa_ : evalsb_),
-                               &((spin2) ? evalsa_ : evalsb_));
-
-  for (int i = 0; i < nirrep_; i++) {
-    for (int j = i; j < nirrep_; j++) {
-      if (i == j && occ_per_irrep1[i] != 0 && irrep_sizes_[i] != 0 &&
-          occ_per_irrep1[i] != irrep_sizes_[i] && occ_per_irrep2[i] != 0 &&
-          occ_per_irrep2[i] != irrep_sizes_[i]) {
-        teit.tile(i, i, i, i) =
-            temp2.tile(i, i, i, i)(Range{0, occ_per_irrep1[i]},
-                                   Range{occ_per_irrep1[i], irrep_sizes_[i]},
-                                   Range{0, occ_per_irrep2[i]},
-                                   Range{occ_per_irrep2[i], irrep_sizes_[i]});
-        denominator.tile(i, i, i, i) = full_denom(
-            Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep1[i]},
-            Range{irrep_offsets_[i] + occ_per_irrep1[i],
-                  irrep_offsets_[i] + irrep_sizes_[i]},
-            Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep2[i]},
-            Range{irrep_offsets_[i] + occ_per_irrep2[i],
-                  irrep_offsets_[i] + irrep_sizes_[i]});
-      } else if (i != j) {
-        if (occ_per_irrep1[i] != 0 && occ_per_irrep1[i] != irrep_sizes_[i] &&
-            occ_per_irrep2[j] != 0 && occ_per_irrep2[j] != irrep_sizes_[j]) {
-          teit.tile(i, i, j, j) =
-              temp2.tile(i, i, j, j)(Range{0, occ_per_irrep1[i]},
-                                     Range{occ_per_irrep1[i], irrep_sizes_[i]},
-                                     Range{0, occ_per_irrep2[j]},
-                                     Range{occ_per_irrep2[j], irrep_sizes_[j]});
-          denominator.tile(i, i, j, j) = full_denom(
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep1[i]},
-              Range{irrep_offsets_[i] + occ_per_irrep1[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]},
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep2[j]},
-              Range{irrep_offsets_[j] + occ_per_irrep2[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]});
-        }
-
-        if (occ_per_irrep1[i] != 0 && occ_per_irrep1[j] != irrep_sizes_[j] &&
-            occ_per_irrep2[i] != 0 && occ_per_irrep2[j] != irrep_sizes_[j]) {
-          teit.tile(i, j, i, j) =
-              temp2.tile(i, j, i, j)(Range{0, occ_per_irrep1[i]},
-                                     Range{occ_per_irrep1[j], irrep_sizes_[j]},
-                                     Range{0, occ_per_irrep2[i]},
-                                     Range{occ_per_irrep2[j], irrep_sizes_[j]});
-          denominator.tile(i, j, i, j) = full_denom(
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep1[i]},
-              Range{irrep_offsets_[j] + occ_per_irrep1[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]},
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep2[i]},
-              Range{irrep_offsets_[j] + occ_per_irrep2[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]});
-        }
-
-        if (occ_per_irrep1[i] != 0 && occ_per_irrep2[i] != irrep_sizes_[i] &&
-            occ_per_irrep2[j] != 0 && occ_per_irrep1[j] != irrep_sizes_[j]) {
-          teit.tile(i, j, j, i) =
-              temp2.tile(i, j, j, i)(Range{0, occ_per_irrep1[i]},
-                                     Range{occ_per_irrep1[j], irrep_sizes_[j]},
-                                     Range{0, occ_per_irrep2[j]},
-                                     Range{occ_per_irrep2[i], irrep_sizes_[i]});
-          denominator.tile(i, j, j, i) = full_denom(
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep1[i]},
-              Range{irrep_offsets_[j] + occ_per_irrep1[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]},
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep2[j]},
-              Range{irrep_offsets_[i] + occ_per_irrep2[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]});
-        }
-
-        if (occ_per_irrep2[i] != 0 && occ_per_irrep1[i] != irrep_sizes_[i] &&
-            occ_per_irrep1[j] != 0 && occ_per_irrep2[j] != irrep_sizes_[j]) {
-          teit.tile(j, i, i, j) =
-              temp2.tile(j, i, i, j)(Range{0, occ_per_irrep1[j]},
-                                     Range{occ_per_irrep1[i], irrep_sizes_[i]},
-                                     Range{0, occ_per_irrep2[i]},
-                                     Range{occ_per_irrep2[j], irrep_sizes_[j]});
-          denominator.tile(j, i, i, j) = full_denom(
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep1[j]},
-              Range{irrep_offsets_[i] + occ_per_irrep1[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]},
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep2[i]},
-              Range{irrep_offsets_[j] + occ_per_irrep2[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]});
-        }
-
-        if (occ_per_irrep2[i] != irrep_sizes_[i] && occ_per_irrep1[j] != 0 &&
-            occ_per_irrep1[i] != irrep_sizes_[i] && occ_per_irrep2[j] != 0) {
-          teit.tile(j, i, j, i) =
-              temp2.tile(j, i, j, i)(Range{0, occ_per_irrep1[j]},
-                                     Range{occ_per_irrep1[i], irrep_sizes_[i]},
-                                     Range{0, occ_per_irrep2[j]},
-                                     Range{occ_per_irrep2[i], irrep_sizes_[i]});
-          denominator.tile(j, i, j, i) = full_denom(
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep1[j]},
-              Range{irrep_offsets_[i] + occ_per_irrep1[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]},
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep2[j]},
-              Range{irrep_offsets_[i] + occ_per_irrep2[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]});
-        }
-
-        if (occ_per_irrep2[i] != 0 && occ_per_irrep2[i] != irrep_sizes_[i] &&
-            occ_per_irrep1[j] != 0 && occ_per_irrep1[j] != irrep_sizes_[j]) {
-          teit.tile(j, j, i, i) =
-              temp2.tile(j, j, i, i)(Range{0, occ_per_irrep1[j]},
-                                     Range{occ_per_irrep1[j], irrep_sizes_[j]},
-                                     Range{0, occ_per_irrep2[i]},
-                                     Range{occ_per_irrep2[i], irrep_sizes_[i]});
-          denominator.tile(j, j, i, i) = full_denom(
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep1[j]},
-              Range{irrep_offsets_[j] + occ_per_irrep1[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]},
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep2[i]},
-              Range{irrep_offsets_[i] + occ_per_irrep2[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]});
-        }
-      }
-    }
-  }
-
-  einsum(Indices{index::i, index::a, index::j, index::b}, &MP2_amps,
-         Indices{index::i, index::a, index::j, index::b}, teit,
-         Indices{index::i, index::a, index::j, index::b}, denominator);
 }
 
 void EinsumsUMP2::init_integrals() {
@@ -311,36 +232,24 @@ void EinsumsUMP2::init_integrals() {
                                                     basisset_, basisset_);
 
   tei_ = einsums::TiledTensor<double, 4>("TEI", irrep_sizes_);
-  teitaa_ = einsums::TiledTensor<double, 4>("Transformed TEI (aa)",
-                                            aocc_per_irrep_, aunocc_per_irrep_,
-                                            aocc_per_irrep_, aunocc_per_irrep_);
+  teitaa_ =
+      einsums::TiledTensor<double, 4>("TEI", aocc_per_irrep_, aunocc_per_irrep_,
+                                      aocc_per_irrep_, aunocc_per_irrep_);
   MP2_ampsaa_ = einsums::TiledTensor<double, 4>(
-      "MP2 Amps (aa)", aocc_per_irrep_, aunocc_per_irrep_, aocc_per_irrep_,
+      "MP2 Amps", aocc_per_irrep_, aunocc_per_irrep_, aocc_per_irrep_,
       aunocc_per_irrep_);
-  denominatoraa_ = TiledTensor<double, 4>("MP2 denominator (aa)",
-                                          aocc_per_irrep_, aunocc_per_irrep_,
-                                          aocc_per_irrep_, aunocc_per_irrep_);
-
-  teitbb_ = einsums::TiledTensor<double, 4>("Transformed TEI (bb)",
-                                            bocc_per_irrep_, bunocc_per_irrep_,
-                                            bocc_per_irrep_, bunocc_per_irrep_);
+  teitbb_ =
+      einsums::TiledTensor<double, 4>("TEI", bocc_per_irrep_, bunocc_per_irrep_,
+                                      bocc_per_irrep_, bunocc_per_irrep_);
   MP2_ampsbb_ = einsums::TiledTensor<double, 4>(
-      "MP2 Amps (bb)", bocc_per_irrep_, bunocc_per_irrep_, bocc_per_irrep_,
+      "MP2 Amps", bocc_per_irrep_, bunocc_per_irrep_, bocc_per_irrep_,
       bunocc_per_irrep_);
-
-  denominatorbb_ = TiledTensor<double, 4>("MP2 denominator (bb)",
-                                          bocc_per_irrep_, bunocc_per_irrep_,
-                                          bocc_per_irrep_, bunocc_per_irrep_);
-
-  teitab_ = einsums::TiledTensor<double, 4>("Transformed TEI (ab)",
-                                            aocc_per_irrep_, aunocc_per_irrep_,
-                                            bocc_per_irrep_, bunocc_per_irrep_);
+  teitab_ =
+      einsums::TiledTensor<double, 4>("TEI", aocc_per_irrep_, aunocc_per_irrep_,
+                                      bocc_per_irrep_, bunocc_per_irrep_);
   MP2_ampsab_ = einsums::TiledTensor<double, 4>(
-      "MP2 Amps (ab)", aocc_per_irrep_, aunocc_per_irrep_, bocc_per_irrep_,
+      "MP2 Amps", aocc_per_irrep_, aunocc_per_irrep_, bocc_per_irrep_,
       bunocc_per_irrep_);
-  denominatorab_ = TiledTensor<double, 4>("MP2 denominator(ab)",
-                                          aocc_per_irrep_, aunocc_per_irrep_,
-                                          bocc_per_irrep_, bunocc_per_irrep_);
 
   auto ints = std::make_shared<IntegralFactory>(basisset_);
 
@@ -359,74 +268,165 @@ void EinsumsUMP2::init_integrals() {
 
   timer_off("EinHF: Generating Integrals");
 
-  timer_on("EinHF: Transforming Two-electron Integrals.");
+  timer_on("EinHF: Transforming Two-electron Integrals");
 
 #pragma omp taskgroup
   {
-#pragma omp task depend(in : this->tei_, this->Ca_)                           \
-    depend(out : this -> teitaa_, this->denominatoraa_, this->MP2_ampsaa_)
-    { setup_spin_integrals(true, true); }
-#pragma omp task depend(in : this->tei_, this->Cb_)                           \
-    depend(out : this -> teitbb_, this->denominatorbb_, this->MP2_ampsbb_)
-    { setup_spin_integrals(false, false); }
-#pragma omp task depend(in : this->tei_, this->Ca_, this->Cb_)                \
-    depend(out : this -> teitab_, this->denominatorab_, this->MP2_ampsab_)
-    { setup_spin_integrals(true, false); }
+#pragma omp task depend(in : this->tei_, this->evalsa_)                        \
+    depend(out : this -> denominatoraa_, this->teitaa_, this->MP2_ampsaa_)
+    {
+      TiledTensor<double, 4> temp1("Transform temp1", irrep_sizes_),
+          temp2("Transform temp2", irrep_sizes_);
+
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp1,
+             Indices{index::m, index::q, index::r, index::s}, tei_,
+             Indices{index::m, index::p}, Ca_);
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp2,
+             Indices{index::p, index::m, index::r, index::s}, temp1,
+             Indices{index::m, index::q}, Ca_);
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp1,
+             Indices{index::p, index::q, index::m, index::s}, temp2,
+             Indices{index::m, index::r}, Ca_);
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp2,
+             Indices{index::p, index::q, index::r, index::m}, temp1,
+             Indices{index::m, index::s}, Ca_);
+      denominatoraa_ = UMP2ScaleTensor(
+          "AA MP2 denominator", aocc_per_irrep_, aunocc_per_irrep_,
+          aocc_per_irrep_, aunocc_per_irrep_, irrep_offsets_, irrep_sizes_,
+          irrep_names_, &evalsa_, &evalsa_);
+
+      for (int i = 0; i < nirrep_; i++) {
+        for (int a = 0; a < nirrep_; a++) {
+          for (int j = 0; j < nirrep_; j++) {
+            for (int b = 0; b < nirrep_; b++) {
+              set_tile(temp2, teitaa_, denominatoraa_, aocc_per_irrep_,
+                       aocc_per_irrep_, i, a, j, b);
+            }
+          }
+        }
+      }
+
+      einsum(Indices{index::i, index::a, index::j, index::b}, &MP2_ampsaa_,
+             Indices{index::i, index::a, index::j, index::b}, teitaa_,
+             Indices{index::i, index::a, index::j, index::b}, denominatoraa_);
+    }
+#pragma omp task depend(in : this->tei_, this->evalsb_)                        \
+    depend(out : this -> denominatorbb_, this->teitbb_, this->MP2_ampsbb_)
+    {
+      TiledTensor<double, 4> temp1("Transform temp1", irrep_sizes_),
+          temp2("Transform temp2", irrep_sizes_);
+
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp1,
+             Indices{index::m, index::q, index::r, index::s}, tei_,
+             Indices{index::m, index::p}, Cb_);
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp2,
+             Indices{index::p, index::m, index::r, index::s}, temp1,
+             Indices{index::m, index::q}, Cb_);
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp1,
+             Indices{index::p, index::q, index::m, index::s}, temp2,
+             Indices{index::m, index::r}, Cb_);
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp2,
+             Indices{index::p, index::q, index::r, index::m}, temp1,
+             Indices{index::m, index::s}, Cb_);
+      denominatorbb_ = UMP2ScaleTensor(
+          "BB MP2 denominator", bocc_per_irrep_, bunocc_per_irrep_,
+          bocc_per_irrep_, bunocc_per_irrep_, irrep_offsets_, irrep_sizes_,
+          irrep_names_, &evalsb_, &evalsb_);
+
+      for (int i = 0; i < nirrep_; i++) {
+        for (int a = 0; a < nirrep_; a++) {
+          for (int j = 0; j < nirrep_; j++) {
+            for (int b = 0; b < nirrep_; b++) {
+              set_tile(temp2, teitbb_, denominatorbb_, bocc_per_irrep_,
+                       bocc_per_irrep_, i, a, j, b);
+            }
+          }
+        }
+      }
+
+      einsum(Indices{index::i, index::a, index::j, index::b}, &MP2_ampsbb_,
+             Indices{index::i, index::a, index::j, index::b}, teitbb_,
+             Indices{index::i, index::a, index::j, index::b}, denominatorbb_);
+    }
+#pragma omp task depend(in : this->tei_, this->evalsa_, this->evalsb_)         \
+    depend(out : this -> denominatorab_, this->teitab_, this->MP2_ampsab_)
+    {
+      TiledTensor<double, 4> temp1("Transform temp1", irrep_sizes_),
+          temp2("Transform temp2", irrep_sizes_);
+
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp1,
+             Indices{index::m, index::q, index::r, index::s}, tei_,
+             Indices{index::m, index::p}, Ca_);
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp2,
+             Indices{index::p, index::m, index::r, index::s}, temp1,
+             Indices{index::m, index::q}, Ca_);
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp1,
+             Indices{index::p, index::q, index::m, index::s}, temp2,
+             Indices{index::m, index::r}, Cb_);
+      einsum(Indices{index::p, index::q, index::r, index::s}, &temp2,
+             Indices{index::p, index::q, index::r, index::m}, temp1,
+             Indices{index::m, index::s}, Cb_);
+      denominatorab_ = UMP2ScaleTensor(
+          "AB MP2 denominator", aocc_per_irrep_, aunocc_per_irrep_,
+          bocc_per_irrep_, bunocc_per_irrep_, irrep_offsets_, irrep_sizes_,
+          irrep_names_, &evalsa_, &evalsb_);
+
+      for (int i = 0; i < nirrep_; i++) {
+        for (int a = 0; a < nirrep_; a++) {
+          for (int j = 0; j < nirrep_; j++) {
+            for (int b = 0; b < nirrep_; b++) {
+              set_tile(temp2, teitab_, denominatorab_, aocc_per_irrep_,
+                       bocc_per_irrep_, i, a, j, b);
+            }
+          }
+        }
+      }
+
+      einsum(Indices{index::i, index::a, index::j, index::b}, &MP2_ampsab_,
+             Indices{index::i, index::a, index::j, index::b}, teitab_,
+             Indices{index::i, index::a, index::j, index::b}, denominatorab_);
+    }
   }
 
   timer_off("EinHF: Transforming Two-electron Integrals");
 }
 
 double EinsumsUMP2::compute_energy() {
-  timer_on("EinHF: Computing MP2 energy");
+  timer_on("EinHF: Computing UMP2 energy");
 
-  double e_new, eMP2_SS;
+  double e_new;
 
-  Tensor<double, 0> eMP2_AA, eMP2_BB, eMP2_OS;
+  Tensor<double, 0> eMP2_AS, eMP2_BS, eMP2_OS;
 
-#pragma omp taskgroup
-  {
-#pragma omp task
-    {
-      einsum(0.0, Indices{}, &eMP2_OS, 1.0,
-             Indices{index::i, index::a, index::j, index::b}, MP2_ampsab_,
-             Indices{index::i, index::a, index::j, index::b}, teitab_);
-    }
-#pragma omp task
-    {
+  einsum(0.0, Indices{}, &eMP2_OS, 1.0,
+         Indices{index::i, index::a, index::j, index::b}, MP2_ampsab_,
+         Indices{index::i, index::a, index::j, index::b}, teitab_);
 
-      einsum(Indices{}, &eMP2_AA,
-             Indices{index::i, index::a, index::j, index::b}, MP2_ampsaa_,
-             Indices{index::i, index::a, index::j, index::b}, teitaa_);
-      einsum(1.0, Indices{}, &eMP2_AA, -1.0,
-             Indices{index::i, index::a, index::j, index::b}, MP2_ampsaa_,
-             Indices{index::i, index::b, index::j, index::a}, teitaa_);
-    }
-#pragma omp task
-    {
+  einsum(0.0, Indices{}, &eMP2_AS, 0.5,
+         Indices{index::i, index::a, index::j, index::b}, MP2_ampsaa_,
+         Indices{index::i, index::a, index::j, index::b}, teitaa_);
+  einsum(1.0, Indices{}, &eMP2_AS, -0.5,
+         Indices{index::i, index::a, index::j, index::b}, MP2_ampsaa_,
+         Indices{index::i, index::b, index::j, index::a}, teitaa_);
 
-      einsum(Indices{}, &eMP2_BB,
-             Indices{index::i, index::a, index::j, index::b}, MP2_ampsbb_,
-             Indices{index::i, index::a, index::j, index::b}, teitbb_);
-      einsum(1.0, Indices{}, &eMP2_BB, -1.0,
-             Indices{index::i, index::a, index::j, index::b}, MP2_ampsbb_,
-             Indices{index::i, index::b, index::j, index::a}, teitbb_);
-    }
-  }
+  einsum(0.0, Indices{}, &eMP2_BS, 0.5,
+         Indices{index::i, index::a, index::j, index::b}, MP2_ampsbb_,
+         Indices{index::i, index::a, index::j, index::b}, teitbb_);
+  einsum(1.0, Indices{}, &eMP2_BS, -0.5,
+         Indices{index::i, index::a, index::j, index::b}, MP2_ampsbb_,
+         Indices{index::i, index::b, index::j, index::a}, teitbb_);
 
-  eMP2_SS = (double) eMP2_AA + (double) eMP2_BB;
-  eMP2_SS /= 2.0;
+  e_new = (double)eMP2_AS + (double)eMP2_BS + (double)eMP2_OS;
 
-  e_new = (double)eMP2_SS + (double)eMP2_OS;
+  timer_off("EinHF: Computing UMP2 energy");
 
-  timer_off("EinHF: Computing energy");
-
-  outfile->Printf("\tMP2 Same-spin:\t%lf\n", (double)eMP2_SS);
-  outfile->Printf("\tMP2 Opposite-spin:\t%lf\n", (double)eMP2_OS);
+  outfile->Printf("\tMP2 Alpha-Alpha:\t%lf\n", (double)eMP2_AS);
+  outfile->Printf("\tMP2 Beta-Beta:\t%lf\n", (double)eMP2_BS);
+  outfile->Printf("\tMP2 Alpha-Beta:\t%lf\n", (double)eMP2_OS);
   outfile->Printf("\tMP2 Correction:\t%lf\n", e_new);
 
   energy_ += e_new;
-  outfile->Printf("\tTotal MP2 Energy:\t%lf\n", energy_);
+  outfile->Printf("\tTotal UMP2 Energy:\t%lf\n", energy_);
 
   return energy_;
 }

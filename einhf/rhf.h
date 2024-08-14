@@ -85,6 +85,9 @@ public:
 
   const einsums::Tensor<double, 1> &getEvals() const { return evals_; }
 
+  const std::vector<int> &getIrrepSizes() const { return irrep_sizes_; }
+  const std::vector<int> &getOccPerIrrep() const { return occ_per_irrep_; }
+
   einsums::BlockTensor<double, 2> &getH() { return H_; }
   einsums::BlockTensor<double, 2> &getS() { return S_; }
   einsums::BlockTensor<double, 2> &getX() { return X_; }
@@ -95,6 +98,8 @@ public:
   einsums::BlockTensor<double, 2> &getD() { return D_; }
 
   einsums::Tensor<double, 1> &getEvals() { return evals_; }
+
+  int getNDocc() const { return ndocc_; }
 
 protected:
   /// The amount of information to print to the output file

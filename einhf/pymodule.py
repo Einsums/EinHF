@@ -39,8 +39,6 @@ def run_einhf(name, **kwargs):
     >>> energy('einhf')
 
     """
-
-    print(f"Plugin load status: {psi4.core.plugin_load('einhf.so')}")
     
     psi4.core.reopen_outfile()
     lowername = name.lower()
@@ -78,6 +76,57 @@ def run_einhf(name, **kwargs):
     
     new_wfn.set_basisset("DF_BASIS_SCF", aux_basis)
 
+    psi4.set_options({"METHOD": "SCF"})
+
+    einhf_wfn = psi4.core.plugin('einhf.so', new_wfn)
+    psi4.set_variable('CURRENT ENERGY', einhf_wfn.energy())
+
+    psi4.core.timer_off(timer_str)
+
+    if kwargs.get('ref_wfn', False):
+        return (einhf_wfn, einhf_wfn.energy())
+    else:
+        return einhf_wfn.energy()
+    
+def run_einmp2(name, **kwargs):
+    r"""Function encoding sequence of PSI module and plugin calls so that
+    einhf can be called via :py:func:`~driver.energy`. For scf plugins.
+
+    >>> energy('einmp2')
+
+    """
+    
+    psi4.core.reopen_outfile()
+    lowername = name.lower()
+    kwargs = p4util.kwargs_lower(kwargs)
+
+    # Your plugin's psi4 run sequence goes here
+    #psi4.core.set_local_option('EINHF', 'PRINT', 1)
+
+    # Build a new blank wavefunction to pass into scf
+    einhf_molecule = kwargs.get('molecule', psi4.core.get_active_molecule())
+
+    aux_basis = psi4.core.BasisSet.build(einhf_molecule, key = "DF_BASIS_SCF", target = psi4.core.get_option("SCF", "DF_BASIS_SCF"),
+                                         fitrole = "JKFIT", other = psi4.core.get_global_option("BASIS"))
+
+    timer_str = "EinMP2: " + psi4.core.get_global_option("COMPUTE").upper() + " "
+
+    if psi4.core.get_global_option("REFERENCE").lower() in ["rhf", "rks"] :
+        timer_str = timer_str + "RMP2"
+    elif psi4.core.get_global_option("REFERENCE").lower() in ["uhf", "uks"] :
+        timer_str = timer_str + "UMP2"
+
+    psi4.core.timer_on(timer_str)
+        
+    #func, disp_type = psi4.dft.build_superfunctional(func_str, False)
+
+    ref_wfn = psi4.core.Wavefunction.build(einhf_molecule, psi4.core.get_global_option('BASIS'))
+    new_wfn = psi4.proc.scf_wavefunction_factory("hf", ref_wfn, psi4.core.get_global_option("REFERENCE"), **kwargs)
+    
+    new_wfn.set_basisset("DF_BASIS_SCF", aux_basis)
+
+    psi4.set_options({"METHOD": "MP2"})
+
     einhf_wfn = psi4.core.plugin('einhf.so', new_wfn)
     psi4.set_variable('CURRENT ENERGY', einhf_wfn.energy())
 
@@ -90,6 +139,7 @@ def run_einhf(name, **kwargs):
 
 # Integration with driver routines
 psi4.driver.procedures['energy']['einhf'] = run_einhf
+psi4.driver.procedures['energy']['einmp2'] = run_einmp2
 
 
 def exampleFN():

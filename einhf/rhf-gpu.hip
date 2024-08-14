@@ -60,7 +60,7 @@ static std::string to_lower(const std::string &str) {
 namespace psi {
 namespace einhf {
 
-GPUEinsumsSCF::GPUEinsumsSCF(SharedWavefunction ref_wfn,
+GPUEinsumsRHF::GPUEinsumsRHF(SharedWavefunction ref_wfn,
                              const std::shared_ptr<SuperFunctional> &functional,
                              Options &options)
     : Wavefunction(options) {
@@ -149,9 +149,9 @@ GPUEinsumsSCF::GPUEinsumsSCF(SharedWavefunction ref_wfn,
   timer_off("EinHF: Setup wavefunction");
 }
 
-GPUEinsumsSCF::~GPUEinsumsSCF() {}
+GPUEinsumsRHF::~GPUEinsumsRHF() {}
 
-void GPUEinsumsSCF::init_integrals() {
+void GPUEinsumsRHF::init_integrals() {
   // The basisset object contains all of the basis information and is formed in
   // the new_wavefunction call The integral factory oversees the creation of
   // integral objects
@@ -264,7 +264,7 @@ void GPUEinsumsSCF::init_integrals() {
   }
 }
 
-double GPUEinsumsSCF::compute_electronic_energy() {
+double GPUEinsumsRHF::compute_electronic_energy() {
   // Compute the electronic energy: (H + F)_pq * D_pq -> energy
 
   einsums::DeviceTensor<double, 0> e_tens;
@@ -297,7 +297,7 @@ double GPUEinsumsSCF::compute_electronic_energy() {
   return out + scalar_variable("-D ENERGY");
 }
 
-void GPUEinsumsSCF::update_Cocc(
+void GPUEinsumsRHF::update_Cocc(
     const einsums::DeviceTensor<double, 1> &energies) {
   // Update occupation.
 
@@ -333,7 +333,7 @@ void GPUEinsumsSCF::update_Cocc(
   }
 }
 
-void GPUEinsumsSCF::compute_diis_coefs(
+void GPUEinsumsRHF::compute_diis_coefs(
     const std::deque<einsums::BlockDeviceTensor<double, 2>> &errors,
     std::vector<double> *out) const {
   einsums::Tensor<double, 2> *B_mat = new einsums::Tensor<double, 2>(
@@ -371,7 +371,7 @@ void GPUEinsumsSCF::compute_diis_coefs(
   delete B_mat;
 }
 
-void GPUEinsumsSCF::compute_diis_fock(
+void GPUEinsumsRHF::compute_diis_fock(
     const std::vector<double> &coefs,
     const std::deque<einsums::BlockDeviceTensor<double, 2>> &focks,
     einsums::BlockDeviceTensor<double, 2> *out) const {
@@ -383,7 +383,7 @@ void GPUEinsumsSCF::compute_diis_fock(
   }
 }
 
-double GPUEinsumsSCF::compute_energy() {
+double GPUEinsumsRHF::compute_energy() {
   timer_on("EinHF: Computing energy");
   if (diis_max_iters_ != 0) {
     outfile->Printf("Performing DIIS with %d vectors.\n", diis_max_iters_);
@@ -923,7 +923,7 @@ double GPUEinsumsSCF::compute_energy() {
   return e_new;
 }
 
-void GPUEinsumsSCF::print_header() {
+void GPUEinsumsRHF::print_header() {
   int nthread = Process::environment.get_n_threads();
 
   outfile->Printf("\n");

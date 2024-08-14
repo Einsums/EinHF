@@ -82,6 +82,8 @@ public:
   const einsums::BlockTensor<double, 2> &getCocc() const { return Cocca_; }
   const einsums::BlockTensor<double, 2> &getD() const { return Da_; }
   const einsums::Tensor<double, 1> &getEvals() const { return evalsa_; }
+  const std::vector<int> &getIrrepSizes() const { return irrep_sizes_; }
+  const std::vector<int> &getOccPerIrrep() const { return aocc_per_irrep_; }
 
   einsums::BlockTensor<double, 2> &getH() { return H_; }
   einsums::BlockTensor<double, 2> &getS() { return S_; }
@@ -99,6 +101,7 @@ public:
   const einsums::BlockTensor<double, 2> &getCocca() const { return Cocca_; }
   const einsums::BlockTensor<double, 2> &getDa() const { return Da_; }
   const einsums::Tensor<double, 1> &getEvalsa() const { return evalsa_; }
+  const std::vector<int> &getAOccPerIrrep() const { return aocc_per_irrep_; }
 
   einsums::BlockTensor<double, 2> &getFa() { return Fa_; }
   einsums::BlockTensor<double, 2> &getFta() { return Fta_; }
@@ -113,6 +116,7 @@ public:
   const einsums::BlockTensor<double, 2> &getCoccb() const { return Coccb_; }
   const einsums::BlockTensor<double, 2> &getDb() const { return Db_; }
   const einsums::Tensor<double, 1> &getEvalsb() const { return evalsb_; }
+  const std::vector<int> &getBOccPerIrrep() const { return bocc_per_irrep_; }
 
   einsums::BlockTensor<double, 2> &getFb() { return Fb_; }
   einsums::BlockTensor<double, 2> &getFtb() { return Ftb_; }
@@ -120,6 +124,9 @@ public:
   einsums::BlockTensor<double, 2> &getCoccb() { return Coccb_; }
   einsums::BlockTensor<double, 2> &getDb() { return Db_; }
   einsums::Tensor<double, 1> &getEvalsb() { return evalsb_; }
+
+  int getNAocc() const { return naocc_; }
+  int getNBocc() const { return nbocc_; }
 
 protected:
   /// The amount of information to print to the output file

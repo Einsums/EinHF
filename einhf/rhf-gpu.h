@@ -48,14 +48,14 @@ class JK;
 
 namespace einhf {
 
-class GPUEinsumsSCF : public Wavefunction {
+class GPUEinsumsRHF : public Wavefunction {
 public:
   /// The constuctor
-  GPUEinsumsSCF(SharedWavefunction ref_wfn,
+  GPUEinsumsRHF(SharedWavefunction ref_wfn,
                 const std::shared_ptr<SuperFunctional> &functional,
                 Options &options);
   /// The destuctor
-  ~GPUEinsumsSCF();
+  ~GPUEinsumsRHF();
   /// Computes the SCF energy, and returns it
   double compute_energy();
 

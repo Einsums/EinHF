@@ -193,6 +193,104 @@ EinsumsRHF::EinsumsRHF(const EinsumsRHF &ref_wfn, Options &options)
   jk_ = ref_wfn.jk_;
   func_ = ref_wfn.func_;
   v_ = ref_wfn.v_;
+
+  if(H_.num_blocks() != ref_wfn.getH().num_blocks()) {
+    throw PSIEXCEPTION("Hamiltonian blocks not copied!");
+  }
+
+  if(H_.block_dims() != ref_wfn.getH().block_dims()) {
+    throw PSIEXCEPTION("Hamiltonian block sizes not copied!");
+  }
+
+  if(S_.num_blocks() != ref_wfn.getS().num_blocks()) {
+    throw PSIEXCEPTION("Overlap blocks not copied!");
+  }
+
+  if(S_.block_dims() != ref_wfn.getS().block_dims()) {
+    throw PSIEXCEPTION("Overlap block sizes not copied!");
+  }
+
+  if(X_.num_blocks() != ref_wfn.getX().num_blocks()) {
+    throw PSIEXCEPTION("Symmetric transform matrix blocks not copied!");
+  }
+
+  if(X_.block_dims() != ref_wfn.getX().block_dims()) {
+    throw PSIEXCEPTION("Symmetric transform matrix block sizes not copied!");
+  }
+
+  if(F_.num_blocks() != ref_wfn.getF().num_blocks()) {
+    throw PSIEXCEPTION("Fock matrix blocks not copied!");
+  }
+
+  if(F_.block_dims() != ref_wfn.getF().block_dims()) {
+    throw PSIEXCEPTION("Fock matrix block sizes not copied!");
+  }
+
+  if(Ft_.num_blocks() != ref_wfn.getFt().num_blocks()) {
+    throw PSIEXCEPTION("Transformed Fock matrix blocks not copied!");
+  }
+
+  if(Ft_.block_dims() != ref_wfn.getFt().block_dims()) {
+    throw PSIEXCEPTION("Transformed Fock matrix block sizes not copied!");
+  }
+
+  if(C_.num_blocks() != ref_wfn.getC().num_blocks()) {
+    throw PSIEXCEPTION("MO coefficient blocks not copied!");
+  }
+
+  if(C_.block_dims() != ref_wfn.getC().block_dims()) {
+    throw PSIEXCEPTION("MO coefficient block sizes not copied!");
+  }
+
+  if(Cocc_.num_blocks() != ref_wfn.getCocc().num_blocks()) {
+    throw PSIEXCEPTION("Occupied MO coefficient blocks not copied!");
+  }
+
+  if(Cocc_.block_dims() != ref_wfn.getCocc().block_dims()) {
+    throw PSIEXCEPTION("Occupied MO coefficient block sizes not copied!");
+  }
+
+  if(D_.num_blocks() != ref_wfn.getD().num_blocks()) {
+    throw PSIEXCEPTION("Density matrix blocks not copied!");
+  }
+
+  if(D_.block_dims() != ref_wfn.getD().block_dims()) {
+    throw PSIEXCEPTION("Density matrix block sizes not copied!");
+  }
+
+
+  for (int i = 0; i < nso_; i++) {
+    for (int j = 0; j < nso_; j++) {
+      if (H_(i, j) != ref_wfn.getH()(i, j)) {
+        throw PSIEXCEPTION("Hamiltonian not copied!");
+      }
+      if (S_(i, j) != ref_wfn.getS()(i, j)) {
+        throw PSIEXCEPTION("Overlap not copied!");
+      }
+      if (X_(i, j) != ref_wfn.getX()(i, j)) {
+        throw PSIEXCEPTION("Orthogonalization matrix not copied!");
+      }
+      if (F_(i, j) != ref_wfn.getF()(i, j)) {
+        throw PSIEXCEPTION("Fock matrix not copied!");
+      }
+      if (Ft_(i, j) != ref_wfn.getFt()(i, j)) {
+        throw PSIEXCEPTION("Transformed Fock matrix not copied!");
+      }
+      if (C_(i, j) != ref_wfn.getC()(i, j)) {
+        throw PSIEXCEPTION("MO coefficients not copied!");
+      }
+      if (Cocc_(i, j) != ref_wfn.getCocc()(i, j)) {
+        throw PSIEXCEPTION("Occupied MO coefficients not copied!");
+      }
+      if (D_(i, j) != ref_wfn.getD()(i, j)) {
+        throw PSIEXCEPTION("Density matrix not copied!");
+      }
+    }
+
+    if (evals_(i) != ref_wfn.getEvals()(i)) {
+      throw PSIEXCEPTION("Orbital energies not copied!");
+    }
+  }
 }
 
 EinsumsRHF::~EinsumsRHF() {}

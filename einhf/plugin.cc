@@ -38,6 +38,7 @@
 #endif
 
 #include "rmp2.h"
+#include "ump2.h"
 
 #include "psi4/libmints/matrix.h"
 #include "psi4/libmints/vector.h"
@@ -93,7 +94,18 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
 
   std::string timer_str = "EinHF: " + options.get_str("COMPUTE") + " " +
                           options.get_str("REFERENCE");
-  SharedWavefunction scfwfn;
+  std::shared_ptr<EinsumsRHF> rhfwfn;
+  std::shared_ptr<EinsumsUHF> uhfwfn;
+  std::shared_ptr<EinsumsRMP2> rmp2wfn;
+  std::shared_ptr<EinsumsUMP2> ump2wfn;
+#ifdef BUILD_GPU
+  std::shared_ptr<GPUEinsumsRHF> gpu_rhfwfn;
+  std::shared_ptr<GPUEinsumsUHF> gpu_uhfwfn;
+#endif
+
+  SharedWavefunction outwfn;
+
+  std::shared_ptr<Functional> functional;
 
   if (!psi::outfile) {
     printf("No output file.\n");
@@ -105,82 +117,94 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
        to_lower(options.get_str("REFERENCE")) == "rks") &&
       to_lower(options.get_str("COMPUTE")) == "cpu") {
     // Build an SCF object, and tell it to compute its energy
-    scfwfn = std::shared_ptr<Wavefunction>(new EinsumsRHF(
+    rhfwfn = std::make_shared<EinsumsRHF>(
         ref_wfn, static_cast<psi::scf::HF *>(ref_wfn.get())->functional(),
-        options));
+        options);
 #pragma omp parallel
     {
 #pragma omp single
-      { scfwfn->compute_energy(); }
+      { rhfwfn->compute_energy(); }
     }
+    outwfn = std::static_pointer_cast<Wavefunction>(rhfwfn);
 
   } else if ((to_lower(options.get_str("REFERENCE")) == "uhf" ||
               to_lower(options.get_str("REFERENCE")) == "uks") &&
              to_lower(options.get_str("COMPUTE")) == "cpu") {
     // Build an SCF object, and tell it to compute its energy
-    scfwfn = std::shared_ptr<Wavefunction>(new EinsumsUHF(
+    uhfwfn = std::make_shared<EinsumsUHF>(
         ref_wfn, static_cast<psi::scf::HF *>(ref_wfn.get())->functional(),
-        options));
+        options);
 #pragma omp parallel
     {
 #pragma omp single
-      { scfwfn->compute_energy(); }
+      { uhfwfn->compute_energy(); }
     }
+    outwfn = std::static_pointer_cast<Wavefunction>(uhfwfn);
 #ifdef BUILD_GPU
   } else if ((to_lower(options.get_str("REFERENCE")) == "rhf" ||
               to_lower(options.get_str("REFERENCE")) == "rks") &&
              to_lower(options.get_str("COMPUTE")) == "gpu") {
     // Build an SCF object, and tell it to compute its energy
-    scfwfn = std::shared_ptr<Wavefunction>(new GPUEinsumsSCF(
+    gpu_rhfwfn = std::make_shared<GPUEinsumsRHF>(
         ref_wfn, static_cast<psi::scf::HF *>(ref_wfn.get())->functional(),
-        options));
+        options);
 #pragma omp parallel
     {
 #pragma omp single
-      { scfwfn->compute_energy(); }
+      { gpu_rhfwfn->compute_energy(); }
     }
-
+    outwfn = std::static_pointer_cast<Wavefunction>(gpu_rhfwfn);
   } else if ((to_lower(options.get_str("REFERENCE")) == "uhf" ||
               to_lower(options.get_str("REFERENCE")) == "uks") &&
              to_lower(options.get_str("COMPUTE")) == "gpu") {
     // Build an SCF object, and tell it to compute its energy
-    scfwfn = std::shared_ptr<Wavefunction>(new GPUEinsumsUHF(
+    gpu_uhfwfn = std::make_shared<GPUEinsumsUHF>(
         ref_wfn, static_cast<psi::scf::HF *>(ref_wfn.get())->functional(),
-        options));
+        options);
 #pragma omp parallel
     {
 #pragma omp single
-      { scfwfn->compute_energy(); }
+      { gpu_uhfwfn->compute_energy(); }
     }
+    outwfn = std::static_pointer_cast<Wavefunction>(gpu_uhfwfn);
 #endif
   } else {
     throw PSIEXCEPTION("Unable to handle reference" +
                        options.get_str("REFERENCE"));
   }
 
-  SharedWavefunction mp2wfn;
-
   if (to_lower(options.get_str("METHOD")) == "mp2" ||
       to_lower(options.get_str("METHOD")) == "ccsd") {
     if (to_lower(options.get_str("REFERENCE")) == "rhf" &&
         to_lower(options.get_str("COMPUTE")) == "cpu") {
-      mp2wfn = std::shared_ptr<Wavefunction>(new EinsumsRMP2(
-          std::static_pointer_cast<EinsumsRHF>(scfwfn), options));
+      rmp2wfn = std::make_shared<EinsumsRMP2>(rhfwfn, options);
 #pragma omp parallel
       {
 #pragma omp single
-        { mp2wfn->compute_energy(); }
+        { rmp2wfn->compute_energy(); }
       }
+      outwfn = std::static_pointer_cast<Wavefunction>(rmp2wfn);
+    } else if (to_lower(options.get_str("REFERENCE")) == "uhf" &&
+               to_lower(options.get_str("COMPUTE")) == "cpu") {
+      ump2wfn = std::make_shared<EinsumsUMP2>(uhfwfn, options);
+#pragma omp parallel
+      {
+#pragma omp single
+        { ump2wfn->compute_energy(); }
+      }
+      outwfn = std::static_pointer_cast<Wavefunction>(ump2wfn);
+    } else {
+      throw PSIEXCEPTION("Can not handle MP2 with the given reference or compute type!");
     }
   } else if (to_lower(options.get_str("METHOD")) == "scf") {
-    einsums::finalize(true);
-    return scfwfn;
+    einsums::finalize(false);
+    return outwfn;
   } else {
     throw PSIEXCEPTION("Unrecognized method" + options.get_str("METHOD"));
   }
 
   if (to_lower(options.get_str("METHOD")) == "mp2") {
-    return mp2wfn;
+    return outwfn;
   } else {
     throw PSIEXCEPTION("Unrecognized method" + options.get_str("METHOD"));
   }

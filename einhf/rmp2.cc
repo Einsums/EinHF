@@ -69,7 +69,7 @@ namespace psi {
 namespace einhf {
 
 EinsumsRMP2::EinsumsRMP2(std::shared_ptr<EinsumsRHF> ref_wfn, Options &options)
-    : EinsumsRHF(*ref_wfn, options) {
+    : Wavefunction(options) {
 
   timer_on("EinHF: Setup MP2 wavefunction");
 
@@ -79,14 +79,18 @@ EinsumsRMP2::EinsumsRMP2(std::shared_ptr<EinsumsRHF> ref_wfn, Options &options)
   energy_ = ref_wfn->energy();
 
   evals_ = ref_wfn->getEvals();
+  evals_.set_name("Orbital energies");
 
   print_ = options_.get_int("PRINT");
 
   nirrep_ = sobasisset_->nirrep();
   nso_ = basisset_->nbf();
+  occ_per_irrep_ = ref_wfn->getOccPerIrrep();
+  irrep_sizes_ = ref_wfn->getIrrepSizes();
   unocc_per_irrep_ = std::vector<int>(nirrep_);
   irrep_offsets_ = std::vector<int>(nirrep_);
   irrep_offsets_[0] = 0;
+  ndocc_ = ref_wfn->getNDocc();
 
   for (int i = 0; i < nirrep_; i++) {
     unocc_per_irrep_[i] = irrep_sizes_.at(i) - occ_per_irrep_.at(i);
@@ -97,16 +101,57 @@ EinsumsRMP2::EinsumsRMP2(std::shared_ptr<EinsumsRHF> ref_wfn, Options &options)
 
   print_header();
 
-  init_integrals();
+  S_ = ref_wfn->getS();
+  F_ = ref_wfn->getF();
+  Ft_ = ref_wfn->getFt();
+  C_ = ref_wfn->getC();
+  Cocc_ = ref_wfn->getCocc();
+  D_ = ref_wfn->getD();
 
-  // H_ = ref_wfn->getH();
-  // S_ = ref_wfn->getS();
-  // X_ = ref_wfn->getX();
-  // F_ = ref_wfn->getF();
-  // Ft_ = ref_wfn->getFt();
-  // C_ = ref_wfn->getC();
-  // Cocc_ = ref_wfn->getCocc();
-  // D_ = ref_wfn->getD();
+  for (int i = 0; i < S_.num_blocks(); i++) {
+    irrep_names_.push_back(ref_wfn->getS()[i].name());
+    S_[i].set_name(ref_wfn->getS()[i].name());
+    F_[i].set_name(ref_wfn->getS()[i].name());
+    Ft_[i].set_name(ref_wfn->getS()[i].name());
+    C_[i].set_name(ref_wfn->getS()[i].name());
+    Cocc_[i].set_name(ref_wfn->getS()[i].name());
+    D_[i].set_name(ref_wfn->getS()[i].name());
+  }
+
+  S_.set_name("Overlap");
+  F_.set_name("Fock matrix");
+  Ft_.set_name("Transformed Fock matrix");
+  C_.set_name("MO coefficients");
+  Cocc_.set_name("Occupied MO coefficients");
+  D_.set_name("Density matrix");
+
+  outfile->Printf("    Number of orbitals: %d\n", nso_);
+  outfile->Printf("    Orbital Occupation:\n         \t");
+
+  for (int i = 0; i < S_.num_blocks(); i++) {
+    outfile->Printf("%4s\t", S_.name(i).c_str());
+  }
+
+  outfile->Printf("\n    DOCC \t");
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", occ_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    VIRT \t");
+
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i] - occ_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    Total\t");
+
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i]);
+  }
+
+  outfile->Printf("\n");
+
+  init_integrals();
 
   timer_off("EinHF: Setup MP2 wavefunction");
 }
@@ -119,8 +164,33 @@ static void calculate_tei(std::shared_ptr<TwoBodySOInt> ints,
                        int iirel, int jjirrep, int jjrel, int kkirrep,
                        int kkrel, int llirrep, int llrel, double val) {
     (*out)(iiabs, jjabs, kkabs, llabs) = val;
+    (*out)(iiabs, jjabs, llabs, kkabs) = val;
+    (*out)(jjabs, iiabs, kkabs, llabs) = val;
+    (*out)(jjabs, iiabs, llabs, kkabs) = val;
+    (*out)(kkabs, llabs, iiabs, jjabs) = val;
+    (*out)(kkabs, llabs, jjabs, iiabs) = val;
+    (*out)(llabs, kkabs, iiabs, jjabs) = val;
+    (*out)(llabs, kkabs, jjabs, iiabs) = val;
   };
   ints->compute_integrals(functor);
+}
+
+void EinsumsRMP2::set_tile(const TiledTensor<double, 4> &temp, int i, int a,
+                           int j, int b) {
+  if (occ_per_irrep_[i] != 0 && occ_per_irrep_[a] != irrep_sizes_[a] &&
+      occ_per_irrep_[j] != 0 && occ_per_irrep_[b] != irrep_sizes_[b] &&
+      tei_.has_tile(i, a, j, b)) {
+    std::string tile_name = "(" + S_[i].name() + ", " + S_[a].name() + ", " +
+                            S_[j].name() + ", " + S_[b].name() + ")";
+
+    teit_.tile(i, a, j, b) = temp.tile(i, a, j, b)(
+        Range{0, occ_per_irrep_[i]}, Range{occ_per_irrep_[a], irrep_sizes_[a]},
+        Range{0, occ_per_irrep_[j]}, Range{occ_per_irrep_[b], irrep_sizes_[b]});
+    denominator_.tile(i, a, j, b);
+
+    teit_.tile(i, a, j, b).set_name(tile_name);
+    denominator_.tile(i, a, j, b).set_name(tile_name);
+  }
 }
 
 void EinsumsRMP2::init_integrals() {
@@ -143,12 +213,14 @@ void EinsumsRMP2::init_integrals() {
                        "number of electrons.  Try again!");
   }
   // ndocc_ = nelec / 2;
-  
+
   tei_ = einsums::TiledTensor<double, 4>("TEI", irrep_sizes_);
   teit_ =
       einsums::TiledTensor<double, 4>("TEI", occ_per_irrep_, unocc_per_irrep_,
                                       occ_per_irrep_, unocc_per_irrep_);
-  MP2_amps_ = einsums::TiledTensor<double, 4>("MP2 Amps", occ_per_irrep_, unocc_per_irrep_, occ_per_irrep_, unocc_per_irrep_);
+  MP2_amps_ = einsums::TiledTensor<double, 4>("MP2 Amps", occ_per_irrep_,
+                                              unocc_per_irrep_, occ_per_irrep_,
+                                              unocc_per_irrep_);
 
   auto ints = std::make_shared<IntegralFactory>(basisset_);
 
@@ -185,127 +257,23 @@ void EinsumsRMP2::init_integrals() {
          Indices{index::p, index::q, index::r, index::m}, temp1,
          Indices{index::m, index::s}, C_);
 
-  MP2ScaleFunction full_denom("MP2 denominator", &evals_);
-
   denominator_ =
-      TiledTensor<double, 4>("MP2 denominator", occ_per_irrep_, unocc_per_irrep_,
-                  occ_per_irrep_, unocc_per_irrep_);
+      RMP2ScaleTensor("MP2 denominator", occ_per_irrep_, unocc_per_irrep_,
+                      irrep_offsets_, irrep_sizes_, irrep_names_, &evals_);
 
   for (int i = 0; i < nirrep_; i++) {
-    for (int j = i; j < nirrep_; j++) {
-      if (i == j && occ_per_irrep_[i] != 0 && irrep_sizes_[i] != 0 &&
-          occ_per_irrep_[i] != irrep_sizes_[i]) {
-        teit_.tile(i, i, i, i) =
-            temp2.tile(i, i, i, i)(Range{0, occ_per_irrep_[i]},
-                                   Range{occ_per_irrep_[i], irrep_sizes_[i]},
-                                   Range{0, occ_per_irrep_[i]},
-                                   Range{occ_per_irrep_[i], irrep_sizes_[i]});
-        denominator_.tile(i, i, i, i) = full_denom(
-            Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep_[i]},
-            Range{irrep_offsets_[i] + occ_per_irrep_[i],
-                  irrep_offsets_[i] + irrep_sizes_[i]},
-            Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep_[i]},
-            Range{irrep_offsets_[i] + occ_per_irrep_[i],
-                  irrep_offsets_[i] + irrep_sizes_[i]});
-      } else if (i != j) {
-        if (occ_per_irrep_[i] != 0 && occ_per_irrep_[i] != irrep_sizes_[i] &&
-            occ_per_irrep_[j] != 0 && occ_per_irrep_[j] != irrep_sizes_[j]) {
-          teit_.tile(i, i, j, j) =
-              temp2.tile(i, i, j, j)(Range{0, occ_per_irrep_[i]},
-                                     Range{occ_per_irrep_[i], irrep_sizes_[i]},
-                                     Range{0, occ_per_irrep_[j]},
-                                     Range{occ_per_irrep_[j], irrep_sizes_[j]});
-          denominator_.tile(i, i, j, j) = full_denom(
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep_[i]},
-              Range{irrep_offsets_[i] + occ_per_irrep_[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]},
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep_[j]},
-              Range{irrep_offsets_[j] + occ_per_irrep_[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]});
-        }
-
-        if (occ_per_irrep_[i] != 0 && occ_per_irrep_[j] != irrep_sizes_[j]) {
-          teit_.tile(i, j, i, j) =
-              temp2.tile(i, j, i, j)(Range{0, occ_per_irrep_[i]},
-                                     Range{occ_per_irrep_[j], irrep_sizes_[j]},
-                                     Range{0, occ_per_irrep_[i]},
-                                     Range{occ_per_irrep_[j], irrep_sizes_[j]});
-          denominator_.tile(i, j, i, j) = full_denom(
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep_[i]},
-              Range{irrep_offsets_[j] + occ_per_irrep_[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]},
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep_[i]},
-              Range{irrep_offsets_[j] + occ_per_irrep_[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]});
-        }
-
-        if (occ_per_irrep_[i] != 0 && occ_per_irrep_[i] != irrep_sizes_[i] &&
-            occ_per_irrep_[j] != 0 && occ_per_irrep_[j] != irrep_sizes_[j]) {
-          teit_.tile(i, j, j, i) =
-              temp2.tile(i, j, j, i)(Range{0, occ_per_irrep_[i]},
-                                     Range{occ_per_irrep_[j], irrep_sizes_[j]},
-                                     Range{0, occ_per_irrep_[j]},
-                                     Range{occ_per_irrep_[i], irrep_sizes_[i]});
-          denominator_.tile(i, j, j, i) = full_denom(
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep_[i]},
-              Range{irrep_offsets_[j] + occ_per_irrep_[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]},
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep_[j]},
-              Range{irrep_offsets_[i] + occ_per_irrep_[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]});
-        }
-
-        if (occ_per_irrep_[i] != 0 && occ_per_irrep_[i] != irrep_sizes_[i] &&
-            occ_per_irrep_[j] != 0 && occ_per_irrep_[j] != irrep_sizes_[j]) {
-          teit_.tile(j, i, i, j) =
-              temp2.tile(j, i, i, j)(Range{0, occ_per_irrep_[j]},
-                                     Range{occ_per_irrep_[i], irrep_sizes_[i]},
-                                     Range{0, occ_per_irrep_[i]},
-                                     Range{occ_per_irrep_[j], irrep_sizes_[j]});
-          denominator_.tile(j, i, i, j) = full_denom(
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep_[j]},
-              Range{irrep_offsets_[i] + occ_per_irrep_[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]},
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep_[i]},
-              Range{irrep_offsets_[j] + occ_per_irrep_[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]});
-        }
-
-        if (occ_per_irrep_[i] != irrep_sizes_[i] && occ_per_irrep_[j] != 0) {
-          teit_.tile(j, i, j, i) =
-              temp2.tile(j, i, j, i)(Range{0, occ_per_irrep_[j]},
-                                     Range{occ_per_irrep_[i], irrep_sizes_[i]},
-                                     Range{0, occ_per_irrep_[j]},
-                                     Range{occ_per_irrep_[i], irrep_sizes_[i]});
-          denominator_.tile(j, i, j, i) = full_denom(
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep_[j]},
-              Range{irrep_offsets_[i] + occ_per_irrep_[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]},
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep_[j]},
-              Range{irrep_offsets_[i] + occ_per_irrep_[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]});
-        }
-
-        if (occ_per_irrep_[i] != 0 && occ_per_irrep_[i] != irrep_sizes_[i] &&
-            occ_per_irrep_[j] != 0 && occ_per_irrep_[j] != irrep_sizes_[j]) {
-          teit_.tile(j, j, i, i) =
-              temp2.tile(j, j, i, i)(Range{0, occ_per_irrep_[j]},
-                                     Range{occ_per_irrep_[j], irrep_sizes_[j]},
-                                     Range{0, occ_per_irrep_[i]},
-                                     Range{occ_per_irrep_[i], irrep_sizes_[i]});
-          denominator_.tile(j, j, i, i) = full_denom(
-              Range{irrep_offsets_[j], irrep_offsets_[j] + occ_per_irrep_[j]},
-              Range{irrep_offsets_[j] + occ_per_irrep_[j],
-                    irrep_offsets_[j] + irrep_sizes_[j]},
-              Range{irrep_offsets_[i], irrep_offsets_[i] + occ_per_irrep_[i]},
-              Range{irrep_offsets_[i] + occ_per_irrep_[i],
-                    irrep_offsets_[i] + irrep_sizes_[i]});
+    for(int a = 0; a < nirrep_; a++) {
+      for(int j = 0; j < nirrep_; j++) {
+        for(int b = 0; b < nirrep_; b++) {
+          set_tile(temp2, i, a, j, b);
         }
       }
     }
   }
 
-  einsum(Indices{index::i, index::a, index::j, index::b}, &MP2_amps_, Indices{index::i, index::a, index::j, index::b}, teit_, Indices{index::i, index::a, index::j, index::b}, denominator_);
+  einsum(Indices{index::i, index::a, index::j, index::b}, &MP2_amps_,
+         Indices{index::i, index::a, index::j, index::b}, teit_,
+         Indices{index::i, index::a, index::j, index::b}, denominator_);
 
   timer_off("EinHF: Transforming Two-electron Integrals");
 }
@@ -317,27 +285,22 @@ double EinsumsRMP2::compute_energy() {
 
   Tensor<double, 0> eMP2_SS, eMP2_OS;
 
-#pragma omp taskgroup
-{
-#pragma omp task
-{
-  einsum(0.0, Indices{}, &eMP2_OS, 1.0, Indices{index::i, index::a, index::j, index::b}, MP2_amps_, Indices{index::i, index::a, index::j, index::b}, teit_);
-}
-#pragma omp task
-{
+  einsum(0.0, Indices{}, &eMP2_OS, 1.0,
+         Indices{index::i, index::a, index::j, index::b}, MP2_amps_,
+         Indices{index::i, index::a, index::j, index::b}, teit_);
 
-  einsum(0.0, Indices{}, &eMP2_SS, -1.0, Indices{index::i, index::a, index::j, index::b}, MP2_amps_, Indices{index::i, index::b, index::j, index::a}, teit_);
-}
-}
+  einsum(0.0, Indices{}, &eMP2_SS, -1.0,
+         Indices{index::i, index::a, index::j, index::b}, MP2_amps_,
+         Indices{index::i, index::b, index::j, index::a}, teit_);
 
-  eMP2_SS -= eMP2_OS;
+  eMP2_SS += eMP2_OS;
 
-  e_new = (double) eMP2_SS + (double) eMP2_OS;
+  e_new = (double)eMP2_SS + (double)eMP2_OS;
 
-  timer_off("EinHF: Computing energy");
+  timer_off("EinHF: Computing MP2 energy");
 
-  outfile->Printf("\tMP2 Same-spin:\t%lf\n", (double) eMP2_SS);
-  outfile->Printf("\tMP2 Opposite-spin:\t%lf\n", (double) eMP2_OS);
+  outfile->Printf("\tMP2 Same-spin:\t%lf\n", (double)eMP2_SS);
+  outfile->Printf("\tMP2 Opposite-spin:\t%lf\n", (double)eMP2_OS);
   outfile->Printf("\tMP2 Correction:\t%lf\n", e_new);
 
   energy_ += e_new;

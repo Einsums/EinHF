@@ -47,6 +47,7 @@
 #include "psi4/libpsi4util/process.h"
 #include <LinearAlgebra.hpp>
 #include <_Common.hpp>
+#include <_GPUUtils.hpp>
 #include <_Index.hpp>
 
 static std::string to_lower(const std::string &str) {
@@ -676,6 +677,7 @@ double GPUEinsumsUHF::compute_energy() {
       "    *-----------------------------------------------------------*\n");
 
   while (!converged && iter < maxiter_) {
+    einsums::gpu::device_synchronize();
     e_old = e_new;
 
 // Add the core Hamiltonian term to the Fock operator
@@ -1432,7 +1434,7 @@ void GPUEinsumsUHF::print_header() {
   outfile->Printf("                                by Connor Briggs\n");
   outfile->Printf("                                 %4s Reference\n",
                   options_.get_str("REFERENCE").c_str());
-  outfile->Printf("                               Running on the CPU\n");
+  outfile->Printf("                               Running on the GPU\n");
   outfile->Printf("                      %3d Threads, %6ld MiB Core\n", nthread,
                   memory_ / 1048576L);
   outfile->Printf(
