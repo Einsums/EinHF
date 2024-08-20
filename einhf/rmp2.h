@@ -168,11 +168,15 @@ public:
   einsums::TiledTensor<double, 4> &getMP2Amps() { return MP2_amps_; }
   RMP2ScaleTensor &getDenominator() { return denominator_; }
 
+  double getSCFEnergy() { return scf_energy_; }
+
 protected:
   /// The amount of information to print to the output file
   int print_;
   /// The number of doubly occupied orbitals
   int ndocc_;
+  /// The SCF energy.
+  double scf_energy_;
 
   /// The occupation per irrep.
   std::vector<int> occ_per_irrep_, unocc_per_irrep_;
@@ -197,9 +201,9 @@ protected:
   einsums::BlockTensor<double, 2> D_;
   /// The orbital energies.
   einsums::Tensor<double, 1> evals_;
-  /// The two-electron integrals
+  /// The MO-basis two-electron integrals
   einsums::TiledTensor<double, 4> tei_;
-  /// Transformed two-electron integrals
+  /// Only the (ia|jb) part of the two-electron integrals
   einsums::TiledTensor<double, 4> teit_;
   /// MP2 amplitudes.
   einsums::TiledTensor<double, 4> MP2_amps_;

@@ -576,8 +576,7 @@ double EinsumsRHF::compute_energy() {
   F_ = H_;
   timer_off("Set guess");
 
-#pragma omp task depend(inout : this->JKwK_)
-  { JKwK_.zero(); }
+  JKwK_.zero();
 
   timer_on("Form C");
 
@@ -622,7 +621,7 @@ double EinsumsRHF::compute_energy() {
   int iter = 1;
   bool converged = false;
   double e_old;
-#pragma omp taskwait depend(in : this->JKwK_)
+
   double e_new = e_nuc_ + compute_electronic_energy();
 
   outfile->Printf("    Energy from core Hamiltonian guess: %20.16f\n\n", e_new);
@@ -663,12 +662,10 @@ double EinsumsRHF::compute_energy() {
     e_old = e_new;
 
     timer_on("Form F");
-// Add the core Hamiltonian term to the Fock operator
-#pragma omp task depend(in : this->H_) depend(out : this -> F_)
-    { F_ = H_; }
+    // Add the core Hamiltonian term to the Fock operator
+    F_ = H_;
 
-#pragma omp task depend(inout : this->JKwK_)
-    { JKwK_.zero(); }
+    JKwK_.zero();
 
     // The JK object handles all of the two electron integrals
     // To enhance efficiency it does use the density, but the orbitals
@@ -698,29 +695,23 @@ double EinsumsRHF::compute_energy() {
     Cl.push_back(CTemp);
     jk_->compute();
 
-#pragma omp task depend(out : *J)
-    {
-      timer_on("Form J");
-      const std::vector<SharedMatrix> &J_mat = jk_->J();
+    timer_on("Form J");
+    const std::vector<SharedMatrix> &J_mat = jk_->J();
 #pragma omp parallel for
-      for (int i = 0; i < nirrep_; i++) {
-        if (irrep_sizes_[i] == 0) {
-          continue;
-        }
-#pragma omp parallel for
-        for (int j = 0; j < irrep_sizes_[i]; j++) {
-#pragma omp parallel for
-          for (int k = 0; k < irrep_sizes_[i]; k++) {
+    for (int i = 0; i < nirrep_; i++) {
+      if (irrep_sizes_[i] == 0) {
+        continue;
+      }
+#pragma omp parallel for collapse(2)
+      for (int j = 0; j < irrep_sizes_[i]; j++) {
+        for (int k = 0; k < irrep_sizes_[i]; k++) {
             (*J)[i](j, k) = 2 * J_mat[0]->get(i, j, k);
           }
         }
       }
       timer_off("Form J");
-    }
 
     if (func_->is_x_hybrid() && !(func_->is_x_lrc() && jk_->get_wcombine())) {
-#pragma omp task depend(out : *K)
-      {
         const std::vector<SharedMatrix> &K_mat = jk_->K();
         double alpha = func_->x_alpha();
         timer_on("Form K");
@@ -739,11 +730,8 @@ double EinsumsRHF::compute_energy() {
         }
         timer_off("Form K");
       }
-    }
 
     if (func_->is_x_lrc()) {
-#pragma omp task depend(out : *wK)
-      {
         const std::vector<SharedMatrix> &wK_mat = jk_->wK();
         double beta = func_->x_beta();
         timer_on("Form wK");
@@ -761,12 +749,9 @@ double EinsumsRHF::compute_energy() {
           }
         }
         timer_off("Form wK");
-      }
     }
 
     if (func_->needs_xc()) {
-#pragma omp task depend(in : this->D_) depend(out : *V)
-      {
         SharedMatrix D_mat = std::make_shared<Matrix>(
                          nirrep_, irrep_sizes_.data(), irrep_sizes_.data()),
                      V_mat = std::make_shared<Matrix>(
@@ -799,7 +784,6 @@ double EinsumsRHF::compute_energy() {
             }
           }
         }
-      }
     }
 
     F_ += *J;
@@ -815,13 +799,14 @@ double EinsumsRHF::compute_energy() {
     }
 
     if (func_->needs_xc()) {
-#pragma omp taskwait depend(in : *V)
       F_ += *V;
     }
 
     timer_off("Form F");
 
 // Compute the orbital gradient, FDS-SDF
+  #pragma omp taskgroup
+  {
 #pragma omp task depend(in : this->D_, this->S_, this->F_) depend(out : *FDS)
     {
       einsums::linear_algebra::gemm<false, false>(1.0, D_, S_, 0.0, Temp1);
@@ -832,20 +817,15 @@ double EinsumsRHF::compute_energy() {
       einsums::linear_algebra::gemm<false, false>(1.0, D_, F_, 0.0, Temp2);
       einsums::linear_algebra::gemm<false, false>(1.0, S_, *Temp2, 0.0, SDF);
     }
+  }
 
-#pragma omp task depend(in : *FDS, *SDF) depend(out : *Temp1)
-    {
       *Temp1 = *FDS;
       *Temp1 -= *SDF;
-    }
 
     // Density RMS
     *dRMS_tens = 0;
 
     if (diis_max_iters_ > 0) {
-#pragma omp task depend(in : *Temp1)                                           \
-    depend(inout : *errors, *focks, this -> F_, *coefs, *error_vals)
-      {
         timer_on("Perform DIIS");
 
         if (errors->size() == diis_max_iters_) {
@@ -874,10 +854,7 @@ double EinsumsRHF::compute_energy() {
         compute_diis_fock(*coefs, *focks, &F_);
         timer_off("Perform DIIS");
       }
-    }
 
-#pragma omp task depend(in : *Temp1) depend(out : *dRMS_tens)
-    {
       einsums::tensor_algebra::einsum(
           0.0, einsums::tensor_algebra::Indices{}, dRMS_tens,
           1.0 / (nso_ * nso_),
@@ -887,17 +864,14 @@ double EinsumsRHF::compute_energy() {
           einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
                                            einsums::tensor_algebra::index::j},
           *Temp1);
-    }
 
 // Compute the energy
-#pragma omp taskwait depend(in : this->F_, this->D_, this->H_)
     timer_on("Compute electronic energy");
     e_new = e_nuc_ + compute_electronic_energy();
     timer_off("Compute electronic energy");
 
     double dE = e_new - e_old;
 
-#pragma omp taskwait depend(in : *dRMS_tens)
     double dRMS = std::sqrt((double)*dRMS_tens);
 
     converged = (fabs(dE) < e_convergence_) && (dRMS < d_convergence_);
@@ -965,9 +939,6 @@ double EinsumsRHF::compute_energy() {
 
     // Optional printing
     if (print_ > 3) {
-#pragma omp taskwait depend(in : this->Ft_, this->F_, *Evecs, this->evals_,    \
-                                this->C_, this->D_, *FDS, *SDF, *Temp1,        \
-                                *errors, *focks, *coefs)
       fprintln(*outfile->stream(), Ft_);
       fprintln(*outfile->stream(), F_);
       fprintln(*outfile->stream(), *Evecs);

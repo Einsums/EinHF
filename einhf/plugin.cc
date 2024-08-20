@@ -40,6 +40,10 @@
 #include "rmp2.h"
 #include "ump2.h"
 
+#ifdef __HIP__
+#include "rmp2-gpu.h"
+#endif
+
 #include "psi4/libmints/matrix.h"
 #include "psi4/libmints/vector.h"
 #include "psi4/liboptions/liboptions.h"
@@ -101,6 +105,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
 #ifdef BUILD_GPU
   std::shared_ptr<GPUEinsumsRHF> gpu_rhfwfn;
   std::shared_ptr<GPUEinsumsUHF> gpu_uhfwfn;
+  std::shared_ptr<GPUEinsumsRMP2> gpu_rmp2wfn;
 #endif
 
   SharedWavefunction outwfn;
@@ -193,8 +198,20 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
         { ump2wfn->compute_energy(); }
       }
       outwfn = std::static_pointer_cast<Wavefunction>(ump2wfn);
+#ifdef __HIP__
+    } else if (to_lower(options.get_str("REFERENCE")) == "rhf" &&
+               to_lower(options.get_str("COMPUTE")) == "gpu") {
+      gpu_rmp2wfn = std::make_shared<GPUEinsumsRMP2>(gpu_rhfwfn, options);
+#pragma omp parallel
+      {
+#pragma omp single
+        { gpu_rmp2wfn->compute_energy(); }
+      }
+      outwfn = std::static_pointer_cast<Wavefunction>(gpu_rmp2wfn);          
+#endif
     } else {
-      throw PSIEXCEPTION("Can not handle MP2 with the given reference or compute type!");
+      throw PSIEXCEPTION(
+          "Can not handle MP2 with the given reference or compute type!");
     }
   } else if (to_lower(options.get_str("METHOD")) == "scf") {
     einsums::finalize(false);

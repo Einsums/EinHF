@@ -209,8 +209,7 @@ void EinsumsUMP2::set_tile(const TiledTensor<double, 4> &temp,
                            const std::vector<int> &bocc_per_irrep, int i, int a,
                            int j, int b) {
   if (aocc_per_irrep[i] != 0 && aocc_per_irrep[a] != irrep_sizes_[a] &&
-      bocc_per_irrep[j] != 0 && bocc_per_irrep[b] != irrep_sizes_[b] &&
-      tei_.has_tile(i, a, j, b)) {
+      bocc_per_irrep[j] != 0 && bocc_per_irrep[b] != irrep_sizes_[b] && temp.has_tile(i, a, j, b)) {
     std::string tile_name = "(" + S_[i].name() + ", " + S_[a].name() + ", " +
                             S_[j].name() + ", " + S_[b].name() + ")";
 

@@ -29,6 +29,7 @@
  */
 
 #include "rmp2.h"
+#include "rmp2-gpu.h"
 #include "rhf.h"
 
 #include "einsums.hpp"
@@ -68,8 +69,8 @@ using namespace einsums::tensor_algebra;
 namespace psi {
 namespace einhf {
 
-EinsumsRMP2::EinsumsRMP2(std::shared_ptr<EinsumsRHF> ref_wfn, Options &options)
-    : Wavefunction(options) {
+GPUEinsumsRMP2::GPUEinsumsRMP2(std::shared_ptr<GPUEinsumsRHF> ref_wfn, Options &options)
+    : Wavefunction(options), S_(ref_wfn->getS()), F_(ref_wfn->getF()), Ft_(ref_wfn->getFt()), C_(ref_wfn->getC()), Cocc_(ref_wfn->getCocc()), D_(ref_wfn->getD()) {
 
   timer_on("EinHF: Setup MP2 wavefunction");
 
@@ -77,7 +78,6 @@ EinsumsRMP2::EinsumsRMP2(std::shared_ptr<EinsumsRHF> ref_wfn, Options &options)
   shallow_copy(ref_wfn);
 
   energy_ = ref_wfn->energy();
-  scf_energy_ = ref_wfn->energy();
 
   evals_ = ref_wfn->getEvals();
   evals_.set_name("Orbital energies");
@@ -101,13 +101,6 @@ EinsumsRMP2::EinsumsRMP2(std::shared_ptr<EinsumsRHF> ref_wfn, Options &options)
   }
 
   print_header();
-
-  S_ = ref_wfn->getS();
-  F_ = ref_wfn->getF();
-  Ft_ = ref_wfn->getFt();
-  C_ = ref_wfn->getC();
-  Cocc_ = ref_wfn->getCocc();
-  D_ = ref_wfn->getD();
 
   for (int i = 0; i < S_.num_blocks(); i++) {
     irrep_names_.push_back(ref_wfn->getS()[i].name());
@@ -157,7 +150,7 @@ EinsumsRMP2::EinsumsRMP2(std::shared_ptr<EinsumsRHF> ref_wfn, Options &options)
   timer_off("EinHF: Setup MP2 wavefunction");
 }
 
-EinsumsRMP2::~EinsumsRMP2() {}
+GPUEinsumsRMP2::~GPUEinsumsRMP2() {}
 
 static void calculate_tei(std::shared_ptr<TwoBodySOInt> ints,
                           einsums::TiledTensor<double, 4> *out) {
@@ -176,10 +169,11 @@ static void calculate_tei(std::shared_ptr<TwoBodySOInt> ints,
   ints->compute_integrals(functor);
 }
 
-void EinsumsRMP2::set_tile(const TiledTensor<double, 4> &temp, int i, int a,
+void GPUEinsumsRMP2::set_tile(const TiledDeviceTensor<double, 4> &temp, int i, int a,
                            int j, int b) {
   if (occ_per_irrep_[i] != 0 && occ_per_irrep_[a] != irrep_sizes_[a] &&
-      occ_per_irrep_[j] != 0 && occ_per_irrep_[b] != irrep_sizes_[b] && temp.has_tile(i, a, j, b)) {
+      occ_per_irrep_[j] != 0 && occ_per_irrep_[b] != irrep_sizes_[b] &&
+      temp.has_tile(i, a, j, b)) {
     std::string tile_name = "(" + S_[i].name() + ", " + S_[a].name() + ", " +
                             S_[j].name() + ", " + S_[b].name() + ")";
 
@@ -193,7 +187,7 @@ void EinsumsRMP2::set_tile(const TiledTensor<double, 4> &temp, int i, int a,
   }
 }
 
-void EinsumsRMP2::init_integrals() {
+void GPUEinsumsRMP2::init_integrals() {
   // The basisset object contains all of the basis information and is formed in
   // the new_wavefunction call The integral factory oversees the creation of
   // integral objects
@@ -214,11 +208,11 @@ void EinsumsRMP2::init_integrals() {
   }
   // ndocc_ = nelec / 2;
 
-  tei_ = einsums::TiledTensor<double, 4>("TEI", irrep_sizes_);
+  tei_ = einsums::TiledDeviceTensor<double, 4>("TEI", irrep_sizes_);
   teit_ =
-      einsums::TiledTensor<double, 4>("TEI", occ_per_irrep_, unocc_per_irrep_,
+      einsums::TiledDeviceTensor<double, 4>("TEI", occ_per_irrep_, unocc_per_irrep_,
                                       occ_per_irrep_, unocc_per_irrep_);
-  MP2_amps_ = einsums::TiledTensor<double, 4>("MP2 Amps", occ_per_irrep_,
+  MP2_amps_ = einsums::TiledDeviceTensor<double, 4>("MP2 Amps", occ_per_irrep_,
                                               unocc_per_irrep_, occ_per_irrep_,
                                               unocc_per_irrep_);
 
@@ -235,13 +229,17 @@ void EinsumsRMP2::init_integrals() {
 
   auto symm_computer = std::make_shared<TwoBodySOInt>(computer, ints);
 
-  calculate_tei(symm_computer, &tei_);
+  auto tei_temp = einsums::TiledTensor<double, 4>("TEI", irrep_sizes_);
+
+  calculate_tei(symm_computer, &tei_temp);
+
+  tei_ = tei_temp;
 
   timer_off("EinHF: Generating Integrals");
 
   timer_on("EinHF: Transforming Two-electron Integrals");
 
-  TiledTensor<double, 4> temp1("Transform temp1", irrep_sizes_),
+  TiledDeviceTensor<double, 4> temp1("Transform temp1", irrep_sizes_),
       temp2("Transform temp2", irrep_sizes_);
 
   einsum(Indices{index::p, index::q, index::r, index::s}, &temp1,
@@ -271,22 +269,25 @@ void EinsumsRMP2::init_integrals() {
     }
   }
 
-  tei_.zero();
-  tei_ = temp2;
+  TiledTensor<double, 4> denom_host_temp{"Denom temp", occ_per_irrep_, unocc_per_irrep_, occ_per_irrep_, unocc_per_irrep_};
+
+  denom_host_temp = denominator_;
+
+  TiledDeviceTensorView<double, 4> denom_temp = denom_host_temp;
 
   einsum(Indices{index::i, index::a, index::j, index::b}, &MP2_amps_,
          Indices{index::i, index::a, index::j, index::b}, teit_,
-         Indices{index::i, index::a, index::j, index::b}, denominator_);
+         Indices{index::i, index::a, index::j, index::b}, denom_temp);
 
   timer_off("EinHF: Transforming Two-electron Integrals");
 }
 
-double EinsumsRMP2::compute_energy() {
+double GPUEinsumsRMP2::compute_energy() {
   timer_on("EinHF: Computing MP2 energy");
 
   double e_new;
 
-  Tensor<double, 0> eMP2_SS, eMP2_OS;
+  DeviceTensor<double, 0> eMP2_SS, eMP2_OS;
 
   einsum(0.0, Indices{}, &eMP2_OS, 1.0,
          Indices{index::i, index::a, index::j, index::b}, MP2_amps_,
@@ -312,7 +313,7 @@ double EinsumsRMP2::compute_energy() {
   return energy_;
 }
 
-void EinsumsRMP2::print_header() {
+void GPUEinsumsRMP2::print_header() {
   int nthread = Process::environment.get_n_threads();
 
   outfile->Printf("\n");
@@ -322,7 +323,7 @@ void EinsumsRMP2::print_header() {
   outfile->Printf("                                by Connor Briggs\n");
   outfile->Printf("                                 %4s Reference\n",
                   options_.get_str("REFERENCE").c_str());
-  outfile->Printf("                               Running on the CPU\n");
+  outfile->Printf("                               Running on the GPU\n");
   outfile->Printf("                      %3d Threads, %6ld MiB Core\n", nthread,
                   memory_ / 1048576L);
   outfile->Printf(

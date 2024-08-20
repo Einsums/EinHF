@@ -136,7 +136,6 @@ public:
   const einsums::BlockTensor<double, 2> &getDb() const { return Db_; }
   const einsums::Tensor<double, 1> &getEvalsb() const { return evalsb_; }
 
-  const einsums::TiledTensor<double, 4> &getTei() const { return tei_; }
   const einsums::TiledTensor<double, 4> &getTeiTransAA() const {
     return teitaa_;
   }
@@ -175,7 +174,6 @@ public:
   einsums::BlockTensor<double, 2> &getDb() { return Db_; }
   einsums::Tensor<double, 1> &getEvalsb() { return evalsb_; }
 
-  einsums::TiledTensor<double, 4> &getTei() { return tei_; }
   einsums::TiledTensor<double, 4> &getTeiTransAA() { return teitaa_; }
   einsums::TiledTensor<double, 4> &getMP2AmpsAA() { return MP2_ampsaa_; }
   UMP2ScaleTensor &getDenominatorAA() { return denominatoraa_; }
@@ -237,13 +235,15 @@ protected:
   /// MP2 amplitudes.
   einsums::TiledTensor<double, 4> MP2_ampsaa_, MP2_ampsbb_, MP2_ampsab_;
   /// Function tensor for the MP2 denominator.
-  UMP2ScaleTensor denominatoraa_, denominatorbb_,
-      denominatorab_;
+  UMP2ScaleTensor denominatoraa_, denominatorbb_, denominatorab_;
   /// Sets up the integrals object
   void init_integrals();
-  void set_tile(const einsums::TiledTensor<double, 4> &temp, einsums::TiledTensor<double, 4> &teit,
-           UMP2ScaleTensor &denominator, const std::vector<int> &aocc_per_irrep,
-           const std::vector<int> &bocc_per_irrep, int i, int a, int j, int b);
+  void set_tile(const einsums::TiledTensor<double, 4> &temp,
+                einsums::TiledTensor<double, 4> &teit,
+                UMP2ScaleTensor &denominator,
+                const std::vector<int> &aocc_per_irrep,
+                const std::vector<int> &bocc_per_irrep, int i, int a, int j,
+                int b);
 };
 
 } // namespace einhf

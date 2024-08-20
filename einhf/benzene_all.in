@@ -109,12 +109,23 @@ psi4.core.timer_on("Psi4 RHF-MP2")
 E1 = energy("mp2")
 psi4.core.timer_off("Psi4 RHF-MP2")
 
-E2 = energy("einhf")
+E2 = energy("einmp2")
+
+assert(abs(E2 - E1) < 1e-6)
+
+set COMPUTE GPU
+
+E2 = energy("einmp2")
+
+assert(abs(E2 - E1) < 1e-6)
 
 set reference uhf
+set COMPUTE CPU
 
 psi4.core.timer_on("Psi4 UHF-MP2")
 E1 = energy("mp2")
 psi4.core.timer_off("Psi4 UHF-MP2")
 
-E2 = energy("einhf")
+E2 = energy("einmp2")
+
+assert(abs(E2 - E1) < 1e-6)

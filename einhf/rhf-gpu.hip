@@ -57,13 +57,17 @@ static std::string to_lower(const std::string &str) {
   return out;
 }
 
+using namespace einsums;
+using namespace einsums::linear_algebra;
+using namespace einsums::tensor_algebra;
+
 namespace psi {
 namespace einhf {
 
 GPUEinsumsRHF::GPUEinsumsRHF(SharedWavefunction ref_wfn,
                              const std::shared_ptr<SuperFunctional> &functional,
                              Options &options)
-    : Wavefunction(options) {
+    : Wavefunction(options), evals_("Orbital energies", ref_wfn->nso()) {
 
   timer_on("EinHF: Setup wavefunction");
 
@@ -402,8 +406,6 @@ double GPUEinsumsRHF::compute_energy() {
       "SDF", einsums::detail::DEV_ONLY, irrep_sizes_);
   auto Evecs = new einsums::BlockDeviceTensor<double, 2>(
       "Eigenvectors", einsums::detail::DEV_ONLY, irrep_sizes_);
-  auto Evals = new einsums::DeviceTensor<double, 1>(
-      "Eigenvalues", einsums::detail::DEV_ONLY, nso_);
 
   auto J = new einsums::BlockDeviceTensor<double, 2>(
       "J matrix", einsums::detail::DEV_ONLY, irrep_sizes_);
@@ -448,12 +450,12 @@ double GPUEinsumsRHF::compute_energy() {
   einsums::linear_algebra::gemm<true, false>(1.0, X_, *Temp1, 0.0, &Ft_);
   *Evecs = Ft_;
 
-  einsums::linear_algebra::syev(Evecs, Evals);
+  einsums::linear_algebra::syev(Evecs, &evals_);
 
   einsums::linear_algebra::gemm<false, true>(1.0, X_, *Evecs, 0.0, &C_);
   timer_off("Form C");
 
-  update_Cocc(*Evals);
+  update_Cocc(evals_);
 
   old_occs = occ_per_irrep_;
 
@@ -476,7 +478,7 @@ double GPUEinsumsRHF::compute_energy() {
     fprintln(*outfile->stream(), X_);
     fprintln(*outfile->stream(), C_);
     fprintln(*outfile->stream(), D_);
-    fprintln(*outfile->stream(), *Evals);
+    fprintln(*outfile->stream(), evals_);
     fprintln(*outfile->stream(), Cocc_);
   }
 
@@ -768,12 +770,12 @@ double GPUEinsumsRHF::compute_energy() {
     einsums::linear_algebra::gemm<true, false>(1.0, X_, *Temp1, 0.0, &Ft_);
 
     *Evecs = Ft_;
-    einsums::linear_algebra::syev(Evecs, Evals);
+    einsums::linear_algebra::syev(Evecs, &evals_);
 
     einsums::linear_algebra::gemm<false, true>(1.0, X_, *Evecs, 0.0, &C_);
     timer_off("Form C");
 
-    update_Cocc(*Evals);
+    update_Cocc(evals_);
 
     timer_on("Form D");
     einsums::tensor_algebra::einsum(
@@ -819,13 +821,13 @@ double GPUEinsumsRHF::compute_energy() {
 
     // Optional printing
     if (print_ > 3) {
-#pragma omp taskwait depend(in : this->Ft_, this->F_, *Evecs, *Evals,          \
+#pragma omp taskwait depend(in : this->Ft_, this->F_, *Evecs, this->evals_,          \
                                 this->C_, this->D_, *FDS, *SDF, *Temp1,        \
                                 *errors, *focks, *coefs)
       fprintln(*outfile->stream(), Ft_);
       fprintln(*outfile->stream(), F_);
       fprintln(*outfile->stream(), *Evecs);
-      fprintln(*outfile->stream(), *Evals);
+      fprintln(*outfile->stream(), evals_);
       fprintln(*outfile->stream(), C_);
       fprintln(*outfile->stream(), D_);
       fprintln(*outfile->stream(), *FDS);
@@ -851,7 +853,6 @@ double GPUEinsumsRHF::compute_energy() {
   if (!converged)
     throw PSIEXCEPTION("The SCF iterations did not converge.");
 
-  Evals->set_name("Orbital Energies");
   outfile->Printf("\nOccupied:\n");
 
   std::vector<int> inds(nirrep_);
@@ -867,8 +868,8 @@ double GPUEinsumsRHF::compute_energy() {
       if (inds[j] >= occ_per_irrep_[j]) {
         continue;
       }
-      if ((*Evals)(S_.block_range(j)[0] + inds[j]) < curr_min) {
-        curr_min = (*Evals)(S_.block_range(j)[0] + inds[j]);
+      if ((evals_)(S_.block_range(j)[0] + inds[j]) < curr_min) {
+        curr_min = (evals_)(S_.block_range(j)[0] + inds[j]);
         min_ind = j;
       }
     }
@@ -888,8 +889,8 @@ double GPUEinsumsRHF::compute_energy() {
       if (inds[j] >= irrep_sizes_[j]) {
         continue;
       }
-      if ((*Evals)(S_.block_range(j)[0] + inds[j]) < curr_min) {
-        curr_min = (*Evals)(S_.block_range(j)[0] + inds[j]);
+      if ((evals_)(S_.block_range(j)[0] + inds[j]) < curr_min) {
+        curr_min = (evals_)(S_.block_range(j)[0] + inds[j]);
         min_ind = j;
       }
     }
@@ -908,7 +909,6 @@ double GPUEinsumsRHF::compute_energy() {
   delete Temp1;
   delete Temp2;
   delete Evecs;
-  delete Evals;
   delete FDS;
   delete SDF;
 

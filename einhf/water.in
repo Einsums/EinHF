@@ -12,21 +12,21 @@ molecule water {
   H 1 1.1 2 104.5
 }
 
-set basis sto-3g
+set basis def2-tzvpd
 
 set GUESS CORE
 set DIIS TRUE
 set SCF_INITIAL_ACCELERATOR NONE
 set PRINT 1
 set SCF_TYPE PK
-set COMPUTE CPU
+set COMPUTE GPU
 set MP2_TYPE CONV
 
-set reference uhf
+set reference rhf
 
-psi4.core.timer_on("Psi4 UHF-MP2")
+psi4.core.timer_on("Psi4 RHF-MP2")
 E1 = energy("mp2")
-psi4.core.timer_off("Psi4 UHF-MP2")
+psi4.core.timer_off("Psi4 RHF-MP2")
 
 E2 = energy("einmp2")
 
