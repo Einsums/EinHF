@@ -79,7 +79,7 @@ GPUEinsumsRHF::GPUEinsumsRHF(SharedWavefunction ref_wfn,
   nirrep_ = sobasisset_->nirrep();
   nso_ = basisset_->nbf();
 
-  maxiter_ = options_.get_int("SCF_MAXITER");
+  maxiter_ = options_.get_int("MAXITER");
   e_convergence_ = options_.get_double("E_CONVERGENCE");
   d_convergence_ = options_.get_double("D_CONVERGENCE");
   func_ = functional;

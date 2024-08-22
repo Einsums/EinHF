@@ -42,6 +42,7 @@
 
 #ifdef __HIP__
 #include "rmp2-gpu.h"
+#include "ump2-gpu.h"
 #endif
 
 #include "psi4/libmints/matrix.h"
@@ -67,19 +68,19 @@ extern "C" PSI_API int read_options(std::string name, Options &options) {
   if (name == "EINHF" || options.read_globals()) {
     /*- The amount of information printed
         to the output file -*/
-    options.add_int("PRINT", 1);
-    /*- How tightly to converge the energy -*/
-    options.add_double("E_CONVERGENCE", 1.0E-10);
-    /*- How tightly to converge the density -*/
-    options.add_double("D_CONVERGENCE", 1.0E-6);
-    /*- How many iteration to allow -*/
-    options.add_int("SCF_MAXITER", 50);
-    /*- Whether to use DIIS acceleration. -*/
-    options.add_bool("DIIS", true);
-    /*- How many DIIS vectors to store. -*/
-    options.add_int("DIIS_MAX_VECS", 6);
-    /*- What reference to use -*/
-    options.add_str("REFERENCE", "RHF");
+    // options.add_int("PRINT", 1);
+    // /*- How tightly to converge the energy -*/
+    // options.add_double("E_CONVERGENCE", 1.0E-10);
+    // /*- How tightly to converge the density -*/
+    // options.add_double("D_CONVERGENCE", 1.0E-6);
+    // /*- How many iteration to allow -*/
+    // options.add_int("MAXITER", 50);
+    // /*- Whether to use DIIS acceleration. -*/
+    // options.add_bool("DIIS", true);
+    // /*- How many DIIS vectors to store. -*/
+    // options.add_int("DIIS_MAX_VECS", 6);
+    // /*- What reference to use -*/
+    // options.add_str("REFERENCE", "RHF");
     /*- What kind of SCF to do. -*/
     options.add_str("COMPUTE", "CPU");
     /*- What computation to do. -*/
@@ -106,6 +107,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
   std::shared_ptr<GPUEinsumsRHF> gpu_rhfwfn;
   std::shared_ptr<GPUEinsumsUHF> gpu_uhfwfn;
   std::shared_ptr<GPUEinsumsRMP2> gpu_rmp2wfn;
+  std::shared_ptr<GPUEinsumsUMP2> gpu_ump2wfn;
 #endif
 
   SharedWavefunction outwfn;
@@ -208,6 +210,15 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
         { gpu_rmp2wfn->compute_energy(); }
       }
       outwfn = std::static_pointer_cast<Wavefunction>(gpu_rmp2wfn);          
+    } else if (to_lower(options.get_str("REFERENCE")) == "uhf" &&
+               to_lower(options.get_str("COMPUTE")) == "gpu") {
+      gpu_ump2wfn = std::make_shared<GPUEinsumsUMP2>(gpu_uhfwfn, options);
+#pragma omp parallel
+      {
+#pragma omp single
+        { gpu_ump2wfn->compute_energy(); }
+      }
+      outwfn = std::static_pointer_cast<Wavefunction>(gpu_ump2wfn);          
 #endif
     } else {
       throw PSIEXCEPTION(

@@ -69,6 +69,61 @@ public:
 
   void print_header();
 
+  const einsums::BlockDeviceTensor<double, 2> &getH() const { return H_; }
+  const einsums::BlockDeviceTensor<double, 2> &getS() const { return S_; }
+  const einsums::BlockDeviceTensor<double, 2> &getX() const { return X_; }
+  const einsums::BlockDeviceTensor<double, 2> &getF() const { return Fa_; }
+  const einsums::BlockDeviceTensor<double, 2> &getFt() const { return Fta_; }
+  const einsums::BlockDeviceTensor<double, 2> &getC() const { return Ca_; }
+  const einsums::BlockDeviceTensor<double, 2> &getCocc() const { return Cocca_; }
+  const einsums::BlockDeviceTensor<double, 2> &getD() const { return Da_; }
+  const einsums::DeviceTensor<double, 1> &getEvals() const { return evalsa_; }
+  const std::vector<int> &getIrrepSizes() const { return irrep_sizes_; }
+  const std::vector<int> &getOccPerIrrep() const { return aocc_per_irrep_; }
+
+  einsums::BlockDeviceTensor<double, 2> &getH() { return H_; }
+  einsums::BlockDeviceTensor<double, 2> &getS() { return S_; }
+  einsums::BlockDeviceTensor<double, 2> &getX() { return X_; }
+  einsums::BlockDeviceTensor<double, 2> &getF() { return Fa_; }
+  einsums::BlockDeviceTensor<double, 2> &getFt() { return Fta_; }
+  einsums::BlockDeviceTensor<double, 2> &getC() { return Ca_; }
+  einsums::BlockDeviceTensor<double, 2> &getCocc() { return Cocca_; }
+  einsums::BlockDeviceTensor<double, 2> &getD() { return Da_; }
+  einsums::DeviceTensor<double, 1> &getEvals() { return evalsa_; }
+
+  const einsums::BlockDeviceTensor<double, 2> &getFa() const { return Fa_; }
+  const einsums::BlockDeviceTensor<double, 2> &getFta() const { return Fta_; }
+  const einsums::BlockDeviceTensor<double, 2> &getCa() const { return Ca_; }
+  const einsums::BlockDeviceTensor<double, 2> &getCocca() const { return Cocca_; }
+  const einsums::BlockDeviceTensor<double, 2> &getDa() const { return Da_; }
+  const einsums::DeviceTensor<double, 1> &getEvalsa() const { return evalsa_; }
+  const std::vector<int> &getAOccPerIrrep() const { return aocc_per_irrep_; }
+
+  einsums::BlockDeviceTensor<double, 2> &getFa() { return Fa_; }
+  einsums::BlockDeviceTensor<double, 2> &getFta() { return Fta_; }
+  einsums::BlockDeviceTensor<double, 2> &getCa() { return Ca_; }
+  einsums::BlockDeviceTensor<double, 2> &getCocca() { return Cocca_; }
+  einsums::BlockDeviceTensor<double, 2> &getDa() { return Da_; }
+  einsums::DeviceTensor<double, 1> &getEvalsa() { return evalsa_; }
+
+  const einsums::BlockDeviceTensor<double, 2> &getFb() const { return Fb_; }
+  const einsums::BlockDeviceTensor<double, 2> &getFtb() const { return Ftb_; }
+  const einsums::BlockDeviceTensor<double, 2> &getCb() const { return Cb_; }
+  const einsums::BlockDeviceTensor<double, 2> &getCoccb() const { return Coccb_; }
+  const einsums::BlockDeviceTensor<double, 2> &getDb() const { return Db_; }
+  const einsums::DeviceTensor<double, 1> &getEvalsb() const { return evalsb_; }
+  const std::vector<int> &getBOccPerIrrep() const { return bocc_per_irrep_; }
+
+  einsums::BlockDeviceTensor<double, 2> &getFb() { return Fb_; }
+  einsums::BlockDeviceTensor<double, 2> &getFtb() { return Ftb_; }
+  einsums::BlockDeviceTensor<double, 2> &getCb() { return Cb_; }
+  einsums::BlockDeviceTensor<double, 2> &getCoccb() { return Coccb_; }
+  einsums::BlockDeviceTensor<double, 2> &getDb() { return Db_; }
+  einsums::DeviceTensor<double, 1> &getEvalsb() { return evalsb_; }
+
+  int getNAocc() const { return naocc_; }
+  int getNBocc() const { return nbocc_; }
+
 protected:
   /// The amount of information to print to the output file
   int print_;
@@ -111,6 +166,8 @@ protected:
   einsums::BlockDeviceTensor<double, 2> Cocca_, Coccb_;
   /// The density matrix
   einsums::BlockDeviceTensor<double, 2> Da_, Db_;
+  /// The orbital energies.
+  einsums::DeviceTensor<double, 1> evalsa_, evalsb_;
   /// The ubiquitous JK object
   std::shared_ptr<JK> jk_;
   /// The functional.

@@ -76,7 +76,7 @@ EinsumsUHF::EinsumsUHF(SharedWavefunction ref_wfn,
   nirrep_ = sobasisset_->nirrep();
   nso_ = basisset_->nbf();
 
-  maxiter_ = options_.get_int("SCF_MAXITER");
+  maxiter_ = options_.get_int("MAXITER");
   e_convergence_ = options_.get_double("E_CONVERGENCE");
   d_convergence_ = options_.get_double("D_CONVERGENCE");
   func_ = functional;
@@ -252,6 +252,8 @@ void EinsumsUHF::init_integrals() {
   nelec -= charge;
   nbocc_ = (nelec - molecule_->multiplicity() + 1) / 2;
   naocc_ = nbocc_ + molecule_->multiplicity() - 1;
+
+  assert(naocc_ + nbocc_ == nelec);
 
   outfile->Printf("    There are %d alpha occupied orbitals and %d beta "
                   "occupied orbitals.\n",
@@ -545,14 +547,11 @@ double EinsumsUHF::compute_energy() {
   auto Vb = new einsums::BlockTensor<double, 2>("Beta V matrix", irrep_sizes_);
 
   std::deque<einsums::BlockTensor<double, 2>>
-      *errorsa = new std::deque<einsums::BlockTensor<double, 2>>(0),
-      *errorsb = new std::deque<einsums::BlockTensor<double, 2>>(0),
+      *errors = new std::deque<einsums::BlockTensor<double, 2>>(0),
       *focksa = new std::deque<einsums::BlockTensor<double, 2>>(0),
       *focksb = new std::deque<einsums::BlockTensor<double, 2>>(0);
-  std::vector<double> *coefsa = new std::vector<double>(0),
-                      *coefsb = new std::vector<double>(0),
-                      *error_valsa = new std::vector<double>(0),
-                      *error_valsb = new std::vector<double>(0);
+  std::vector<double> *coefs = new std::vector<double>(0),
+                      *error_vals = new std::vector<double>(0);
 
   std::vector<int> old_occsa, old_occsb;
 
@@ -620,7 +619,8 @@ double EinsumsUHF::compute_energy() {
     einsums::linear_algebra::gemm<false, true>(1.0, X_, *Evecsb, 0.0, &Cb_);
     timer_off("Form Cb");
   }
-#pragma omp taskwait depend(in : this->evalsa_, this->evalsb_, this->Ca_, this->Cb_)       \
+#pragma omp taskwait depend(in : this->evalsa_, this->evalsb_, this->Ca_,      \
+                                this->Cb_)                                     \
     depend(out : this -> Cocca_, this->Coccb_)
 
   // Update Cocc.
@@ -659,7 +659,9 @@ double EinsumsUHF::compute_energy() {
   }
 
   if (print_ > 3) {
-#pragma omp taskwait
+#pragma omp taskwait depend(in : this->X_, this->Ca_, this->Da_,               \
+                                this->evalsa_, this->Cocca_, this->Cb_,        \
+                                this->Db_, this->evalsb_, this->Coccb_)
     outfile->Printf(
         "MO Coefficients and density from Core Hamiltonian guess:\n");
     fprintln(*outfile->stream(), X_);
@@ -772,9 +774,7 @@ double EinsumsUHF::compute_energy() {
       if (irrep_sizes_[i] == 0) {
         continue;
       }
-#pragma omp parallel for
       for (int j = 0; j < irrep_sizes_[i]; j++) {
-#pragma omp parallel for
         for (int k = 0; k < aocc_per_irrep_[i]; k++) {
           (*CTempa.get())(i, j, k) = Cocca_[i](j, k);
         }
@@ -787,9 +787,7 @@ double EinsumsUHF::compute_energy() {
       if (irrep_sizes_[i] == 0) {
         continue;
       }
-#pragma omp parallel for
       for (int j = 0; j < irrep_sizes_[i]; j++) {
-#pragma omp parallel for
         for (int k = 0; k < bocc_per_irrep_[i]; k++) {
           (*CTempb.get())(i, j, k) = Coccb_[i](j, k);
         }
@@ -845,9 +843,7 @@ double EinsumsUHF::compute_energy() {
           if (irrep_sizes_[i] == 0) {
             continue;
           }
-#pragma omp parallel for
           for (int j = 0; j < irrep_sizes_[i]; j++) {
-#pragma omp parallel for
             for (int k = 0; k < irrep_sizes_[i]; k++) {
               (*Ka)[i](j, k) = alpha * K_mat[0]->get(i, j, k);
             }
@@ -866,9 +862,7 @@ double EinsumsUHF::compute_energy() {
           if (irrep_sizes_[i] == 0) {
             continue;
           }
-#pragma omp parallel for
           for (int j = 0; j < irrep_sizes_[i]; j++) {
-#pragma omp parallel for
             for (int k = 0; k < irrep_sizes_[i]; k++) {
               (*Kb)[i](j, k) = alpha * K_mat[1]->get(i, j, k);
             }
@@ -889,9 +883,7 @@ double EinsumsUHF::compute_energy() {
           if (irrep_sizes_[i] == 0) {
             continue;
           }
-#pragma omp parallel for
           for (int j = 0; j < irrep_sizes_[i]; j++) {
-#pragma omp parallel for
             for (int k = 0; k < irrep_sizes_[i]; k++) {
               (*wKa)[i](j, k) = beta * wK_mat[0]->get(i, j, k);
             }
@@ -910,9 +902,7 @@ double EinsumsUHF::compute_energy() {
           if (irrep_sizes_[i] == 0) {
             continue;
           }
-#pragma omp parallel for
           for (int j = 0; j < irrep_sizes_[i]; j++) {
-#pragma omp parallel for
             for (int k = 0; k < irrep_sizes_[i]; k++) {
               (*wKb)[i](j, k) = beta * wK_mat[1]->get(i, j, k);
             }
@@ -1093,68 +1083,37 @@ double EinsumsUHF::compute_energy() {
     }
 
     if (diis_max_iters_ > 0) {
-#pragma omp task depend(in : *Temp1a)                                          \
-    depend(inout : this -> Fa_, *error_valsa)                                  \
-    depend(out : *errorsa, *focksa, *coefsa)
-      {
+#pragma omp taskwait depend(in : *Temp1a, *Temp1b)
+      if (errors->size() == diis_max_iters_) {
+        double max_error = -INFINITY;
+        int max_ind = -1;
 
-        if (errorsa->size() == diis_max_iters_) {
-          double max_error = -INFINITY;
-          int max_ind = -1;
-
-          for (int i = 0; i < diis_max_iters_; i++) {
-            if (error_valsa->at(i) > max_error) {
-              max_error = error_valsa->at(i);
-              max_ind = i;
-            }
+        for (int i = 0; i < diis_max_iters_; i++) {
+          if (error_vals->at(i) > max_error) {
+            max_error = error_vals->at(i);
+            max_ind = i;
           }
-
-          focksa->at(max_ind) = Fa_;
-          errorsa->at(max_ind) = *Temp1a;
-          error_valsa->at(max_ind) =
-              einsums::linear_algebra::dot(*Temp1a, *Temp1a);
-        } else {
-          errorsa->push_back(*Temp1a);
-          focksa->push_back(Fa_);
-          error_valsa->push_back(
-              einsums::linear_algebra::dot(*Temp1a, *Temp1a));
         }
 
-        compute_diis_coefs(*errorsa, coefsa);
-
-        compute_diis_fock(*coefsa, *focksa, &Fa_);
+        focksa->at(max_ind) = Fa_;
+        focksb->at(max_ind) = Fb_;
+        errors->at(max_ind) = *Temp1a;
+        errors->at(max_ind) += *Temp1b;
+        error_vals->at(max_ind) = einsums::linear_algebra::dot(
+            errors->at(max_ind), errors->at(max_ind));
+      } else {
+        errors->push_back(*Temp1a);
+        errors->at(errors->size() - 1) += *Temp1b;
+        focksa->push_back(Fa_);
+        focksb->push_back(Fb_);
+        error_vals->push_back(einsums::linear_algebra::dot(
+            errors->at(errors->size() - 1), errors->at(errors->size() - 1)));
       }
-#pragma omp task depend(in : *Temp1b)                                          \
-    depend(inout : this -> Fb_, *error_valsb)                                  \
-    depend(out : *errorsb, *focksb, *coefsb)
-      {
 
-        if (errorsb->size() == diis_max_iters_) {
-          double max_error = -INFINITY;
-          int max_ind = -1;
+      compute_diis_coefs(*errors, coefs);
 
-          for (int i = 0; i < diis_max_iters_; i++) {
-            if (error_valsb->at(i) > max_error) {
-              max_error = error_valsb->at(i);
-              max_ind = i;
-            }
-          }
-
-          focksb->at(max_ind) = Fb_;
-          errorsb->at(max_ind) = *Temp1b;
-          error_valsb->at(max_ind) =
-              einsums::linear_algebra::dot(*Temp1b, *Temp1b);
-        } else {
-          errorsb->push_back(*Temp1b);
-          focksb->push_back(Fb_);
-          error_valsb->push_back(
-              einsums::linear_algebra::dot(*Temp1b, *Temp1b));
-        }
-
-        compute_diis_coefs(*errorsb, coefsb);
-
-        compute_diis_fock(*coefsb, *focksb, &Fb_);
-      }
+      compute_diis_fock(*coefs, *focksa, &Fa_);
+      compute_diis_fock(*coefs, *focksb, &Fb_);
     }
 
     // Density RMS
@@ -1245,7 +1204,8 @@ double EinsumsUHF::compute_energy() {
       einsums::linear_algebra::gemm<false, true>(1.0, X_, *Evecsb, 0.0, &Cb_);
       timer_off("Form Cb");
     }
-#pragma omp taskwait depend(in : this->evalsa_, this->evalsb_, this->Ca_, this->Cb_)       \
+#pragma omp taskwait depend(in : this->evalsa_, this->evalsb_, this->Ca_,      \
+                                this->Cb_)                                     \
     depend(out : this -> Cocca_, this->Coccb_)
 
     // Update Cocc.
@@ -1317,9 +1277,14 @@ double EinsumsUHF::compute_energy() {
       timer_off("Form Db");
     }
 
+#pragma omp taskwait depend(in : this->Da_, this->Db_)
+
     // Optional printing
     if (print_ > 3) {
-#pragma omp taskwait
+#pragma omp taskwait depend(                                                   \
+        in : this->Fta_, this->Fa_, *Evecsa, this->evalsa_, this->Ca_,         \
+            this->Da_, *FDSa, *SDFa, *Temp1a, this->Ftb_, this->Fb_, *Evecsb,  \
+            this->evalsb_, this->Cb_, this->Db_, *FDSb, *SDFb, *Temp1b)
       fprintln(*outfile->stream(), Fta_);
       fprintln(*outfile->stream(), Fa_);
       fprintln(*outfile->stream(), *Evecsa);
@@ -1367,10 +1332,10 @@ double EinsumsUHF::compute_energy() {
       1.0, einsums::tensor_algebra::Indices{}, &spin, -0.5,
       einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
                                        einsums::tensor_algebra::index::j},
-      Da_,
+      Db_,
       einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
                                        einsums::tensor_algebra::index::j},
-      Da_);
+      Db_);
 
   double s_squared = (double)spin * ((double)spin + 1);
   double s2_expected =
@@ -1478,9 +1443,9 @@ double EinsumsUHF::compute_energy() {
 
   energy_ = e_new;
 
-  delete coefsa;
+  delete coefs;
   delete focksa;
-  delete errorsa;
+  delete errors;
 
   delete Temp1a;
   delete Temp2a;
@@ -1492,9 +1457,7 @@ double EinsumsUHF::compute_energy() {
   delete wKa;
   delete Va;
 
-  delete coefsb;
   delete focksb;
-  delete errorsb;
 
   delete Temp1b;
   delete Temp2b;
@@ -1509,8 +1472,7 @@ double EinsumsUHF::compute_energy() {
   delete dRMS_tensa;
   delete dRMS_tensb;
 
-  delete error_valsa;
-  delete error_valsb;
+  delete error_vals;
 
   delete elec_a;
   delete elec_b;

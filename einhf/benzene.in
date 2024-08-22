@@ -6,7 +6,7 @@ import einhf
 
 memory 12 GB
 
-set reference rhf
+set reference uhf
 
 molecule benzene {
 C  -1.4048687738   0.0000000000   0.0000000000
@@ -32,7 +32,7 @@ set DIIS TRUE
 set SCF_INITIAL_ACCELERATOR NONE
 set PRINT 1
 set SCF_TYPE PK
-set COMPUTE CPU
+set COMPUTE GPU
 set MP2_TYPE CONV
 
 psi4.core.timer_on("Psi4 RHF-MP2")
