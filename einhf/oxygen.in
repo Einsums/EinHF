@@ -1,0 +1,30 @@
+# PYTHONPATH must include directory above plugin directory.
+#     Define either externally or here, then import plugin.
+sys.path.insert(0, './..')
+import einhf
+
+memory 12 GB
+
+set reference uhf
+
+molecule oxygen {
+0 3
+    O
+    O 1 1.16
+}
+
+set basis def2-tzvpd
+
+set GUESS CORE
+set DIIS TRUE
+set SCF_INITIAL_ACCELERATOR NONE
+set PRINT 1
+set SCF_TYPE PK
+set COMPUTE CPU
+set MP2_TYPE CONV
+
+E1 = energy("mp2")
+
+E2 = energy("einmp2")
+
+assert(abs(E2 - E1) < 1e-6)

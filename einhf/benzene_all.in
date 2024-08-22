@@ -1,0 +1,131 @@
+
+# PYTHONPATH must include directory above plugin directory.
+#     Define either externally or here, then import plugin.
+sys.path.insert(0, './..')
+import einhf
+
+memory 12 GB
+
+set reference rhf
+
+molecule benzene {
+C  -1.4048687738   0.0000000000   0.0000000000
+C  -0.7024342868  -1.2166514854   0.0000000000
+C   0.7024342868   1.2166514854   0.0000000000
+H  -1.2499038739  -2.1648994052   0.0000000000
+C  -0.7024342868   1.2166514854   0.0000000000
+C   0.7024342868  -1.2166514854   0.0000000000
+H  -2.4998103593  -0.0000000000   0.0000000000
+H  -1.2499038739   2.1648994052   0.0000000000
+C   1.4048687738   0.0000000000   0.0000000000
+H   1.2499038739  -2.1648994052   0.0000000000
+H   2.4998103593  -0.0000000000   0.0000000000
+H   1.2499038739   2.1648994052   0.0000000000
+}
+
+set {
+  basis cc-pVTZ
+}
+
+set GUESS CORE
+set DIIS TRUE
+set SCF_INITIAL_ACCELERATOR NONE
+set PRINT 1
+set SCF_TYPE PK
+set COMPUTE CPU
+
+psi4.core.timer_on("Psi4 RHF")
+E1 = energy("hf")
+psi4.core.timer_off("Psi4 RHF")
+
+E2 = energy('einhf')
+
+assert(abs(E2 - E1) < 1e-6)
+
+set COMPUTE GPU
+
+E2 = energy('einhf')
+
+assert(abs(E2 - E1) < 1e-6)
+
+set COMPUTE CPU
+set reference uhf
+
+psi4.core.timer_on("Psi4 UHF")
+E1 = energy("hf")
+psi4.core.timer_off("Psi4 UHF")
+
+E2 = energy('einhf')
+
+assert(abs(E2 - E1) < 1e-6)
+
+set COMPUTE GPU
+
+E2 = energy('einhf')
+
+assert(abs(E2 - E1) < 1e-6)
+
+set reference rhf
+
+psi4.core.timer_on("Psi4 RKS")
+E1 = energy("b3lyp")
+psi4.core.timer_off("Psi4 RKS")
+
+set COMPUTE CPU
+
+E2 = energy('einhf', dft_functional = "b3lyp")
+
+assert(abs(E2 - E1) < 1e-6)
+
+set COMPUTE GPU
+
+E2 = energy('einhf', dft_functional = "b3lyp")
+
+assert(abs(E2 - E1) < 1e-6)
+
+set COMPUTE CPU
+set reference uhf
+
+psi4.core.timer_on("Psi4 UKS")
+E1 = energy("b3lyp")
+psi4.core.timer_off("Psi4 UKS")
+
+E2 = energy('einhf', dft_functional = "b3lyp")
+
+assert(abs(E2 - E1) < 1e-6)
+
+set COMPUTE GPU
+
+E2 = energy('einhf', dft_functional = "b3lyp")
+
+assert(abs(E2 - E1) < 1e-6)
+
+
+set reference rhf
+set METHOD MP2
+set COMPUTE CPU
+
+psi4.core.timer_on("Psi4 RHF-MP2")
+E1 = energy("mp2")
+psi4.core.timer_off("Psi4 RHF-MP2")
+
+E2 = energy("einmp2")
+
+assert(abs(E2 - E1) < 1e-6)
+
+set COMPUTE GPU
+
+E2 = energy("einmp2")
+
+assert(abs(E2 - E1) < 1e-6)
+
+set reference uhf
+set COMPUTE CPU
+
+psi4.core.timer_on("Psi4 UHF-MP2")
+E1 = energy("mp2")
+psi4.core.timer_off("Psi4 UHF-MP2")
+
+E2 = energy("einmp2")
+
+assert(abs(E2 - E1) < 1e-6)

@@ -1,0 +1,44 @@
+
+# PYTHONPATH must include directory above plugin directory.
+#     Define either externally or here, then import plugin.
+sys.path.insert(0, './..')
+import einhf
+
+memory 12 GB
+
+set reference uhf
+
+molecule benzene {
+C  -1.4048687738   0.0000000000   0.0000000000
+C  -0.7024342868  -1.2166514854   0.0000000000
+C   0.7024342868   1.2166514854   0.0000000000
+H  -1.2499038739  -2.1648994052   0.0000000000
+C  -0.7024342868   1.2166514854   0.0000000000
+C   0.7024342868  -1.2166514854   0.0000000000
+H  -2.4998103593  -0.0000000000   0.0000000000
+H  -1.2499038739   2.1648994052   0.0000000000
+C   1.4048687738   0.0000000000   0.0000000000
+H   1.2499038739  -2.1648994052   0.0000000000
+H   2.4998103593  -0.0000000000   0.0000000000
+H   1.2499038739   2.1648994052   0.0000000000
+}
+
+set {
+  basis cc-pVTZ
+}
+
+set GUESS CORE
+set DIIS TRUE
+set SCF_INITIAL_ACCELERATOR NONE
+set PRINT 1
+set SCF_TYPE PK
+set COMPUTE GPU
+set MP2_TYPE CONV
+
+psi4.core.timer_on("Psi4 RHF-MP2")
+E1 = energy("mp2")
+psi4.core.timer_off("Psi4 RHF-MP2")
+
+E2 = energy("einmp2")
+
+assert(abs(E2 - E1) < 1e-6)

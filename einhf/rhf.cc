@@ -62,7 +62,7 @@ static std::string to_lower(const std::string &str) {
 namespace psi {
 namespace einhf {
 
-EinsumsSCF::EinsumsSCF(SharedWavefunction ref_wfn,
+EinsumsRHF::EinsumsRHF(SharedWavefunction ref_wfn,
                        const std::shared_ptr<SuperFunctional> &functional,
                        Options &options)
     : Wavefunction(options) {
@@ -76,7 +76,7 @@ EinsumsSCF::EinsumsSCF(SharedWavefunction ref_wfn,
 
   nirrep_ = sobasisset_->nirrep();
   nso_ = basisset_->nbf();
-  maxiter_ = options_.get_int("SCF_MAXITER");
+  maxiter_ = options_.get_int("MAXITER");
   e_convergence_ = options_.get_double("E_CONVERGENCE");
   d_convergence_ = options_.get_double("D_CONVERGENCE");
   func_ = functional;
@@ -90,6 +90,7 @@ EinsumsSCF::EinsumsSCF(SharedWavefunction ref_wfn,
   }
 
   init_integrals();
+  evals_ = einsums::Tensor<double, 1>("Orbital energies", nso_);
 
   // Set Wavefunction matrices
   X_.set_name("S^1/2");
@@ -138,9 +139,163 @@ EinsumsSCF::EinsumsSCF(SharedWavefunction ref_wfn,
   timer_off("EinHF: Setup wavefunction");
 }
 
-EinsumsSCF::~EinsumsSCF() {}
+EinsumsRHF::EinsumsRHF(const EinsumsRHF &ref_wfn)
+    : Wavefunction(ref_wfn.options()) {
+  print_ = ref_wfn.print_;
+  ndocc_ = ref_wfn.ndocc_;
+  occ_per_irrep_ = ref_wfn.occ_per_irrep_;
+  irrep_sizes_ = ref_wfn.irrep_sizes_;
+  nso_ = ref_wfn.nso_;
+  maxiter_ = ref_wfn.maxiter_;
+  diis_max_iters_ = ref_wfn.diis_max_iters_;
+  e_nuc_ = ref_wfn.e_nuc_;
+  d_convergence_ = ref_wfn.d_convergence_;
+  e_convergence_ = ref_wfn.e_convergence_;
+  H_ = ref_wfn.H_;
+  S_ = ref_wfn.S_;
+  X_ = ref_wfn.X_;
 
-void EinsumsSCF::init_integrals() {
+  F_ = ref_wfn.F_;
+  JKwK_ = ref_wfn.JKwK_;
+  Ft_ = ref_wfn.Ft_;
+  C_ = ref_wfn.C_;
+  Cocc_ = ref_wfn.Cocc_;
+  D_ = ref_wfn.D_;
+  evals_ = ref_wfn.evals_;
+  jk_ = ref_wfn.jk_;
+  func_ = ref_wfn.func_;
+  v_ = ref_wfn.v_;
+}
+
+EinsumsRHF::EinsumsRHF(const EinsumsRHF &ref_wfn, Options &options)
+    : Wavefunction(options) {
+  print_ = ref_wfn.print_;
+  ndocc_ = ref_wfn.ndocc_;
+  occ_per_irrep_ = ref_wfn.occ_per_irrep_;
+  irrep_sizes_ = ref_wfn.irrep_sizes_;
+  nso_ = ref_wfn.nso_;
+  maxiter_ = ref_wfn.maxiter_;
+  diis_max_iters_ = ref_wfn.diis_max_iters_;
+  e_nuc_ = ref_wfn.e_nuc_;
+  d_convergence_ = ref_wfn.d_convergence_;
+  e_convergence_ = ref_wfn.e_convergence_;
+  H_ = ref_wfn.H_;
+  S_ = ref_wfn.S_;
+  X_ = ref_wfn.X_;
+
+  F_ = ref_wfn.F_;
+  JKwK_ = ref_wfn.JKwK_;
+  Ft_ = ref_wfn.Ft_;
+  C_ = ref_wfn.C_;
+  Cocc_ = ref_wfn.Cocc_;
+  D_ = ref_wfn.D_;
+  evals_ = ref_wfn.evals_;
+  jk_ = ref_wfn.jk_;
+  func_ = ref_wfn.func_;
+  v_ = ref_wfn.v_;
+
+  if(H_.num_blocks() != ref_wfn.getH().num_blocks()) {
+    throw PSIEXCEPTION("Hamiltonian blocks not copied!");
+  }
+
+  if(H_.block_dims() != ref_wfn.getH().block_dims()) {
+    throw PSIEXCEPTION("Hamiltonian block sizes not copied!");
+  }
+
+  if(S_.num_blocks() != ref_wfn.getS().num_blocks()) {
+    throw PSIEXCEPTION("Overlap blocks not copied!");
+  }
+
+  if(S_.block_dims() != ref_wfn.getS().block_dims()) {
+    throw PSIEXCEPTION("Overlap block sizes not copied!");
+  }
+
+  if(X_.num_blocks() != ref_wfn.getX().num_blocks()) {
+    throw PSIEXCEPTION("Symmetric transform matrix blocks not copied!");
+  }
+
+  if(X_.block_dims() != ref_wfn.getX().block_dims()) {
+    throw PSIEXCEPTION("Symmetric transform matrix block sizes not copied!");
+  }
+
+  if(F_.num_blocks() != ref_wfn.getF().num_blocks()) {
+    throw PSIEXCEPTION("Fock matrix blocks not copied!");
+  }
+
+  if(F_.block_dims() != ref_wfn.getF().block_dims()) {
+    throw PSIEXCEPTION("Fock matrix block sizes not copied!");
+  }
+
+  if(Ft_.num_blocks() != ref_wfn.getFt().num_blocks()) {
+    throw PSIEXCEPTION("Transformed Fock matrix blocks not copied!");
+  }
+
+  if(Ft_.block_dims() != ref_wfn.getFt().block_dims()) {
+    throw PSIEXCEPTION("Transformed Fock matrix block sizes not copied!");
+  }
+
+  if(C_.num_blocks() != ref_wfn.getC().num_blocks()) {
+    throw PSIEXCEPTION("MO coefficient blocks not copied!");
+  }
+
+  if(C_.block_dims() != ref_wfn.getC().block_dims()) {
+    throw PSIEXCEPTION("MO coefficient block sizes not copied!");
+  }
+
+  if(Cocc_.num_blocks() != ref_wfn.getCocc().num_blocks()) {
+    throw PSIEXCEPTION("Occupied MO coefficient blocks not copied!");
+  }
+
+  if(Cocc_.block_dims() != ref_wfn.getCocc().block_dims()) {
+    throw PSIEXCEPTION("Occupied MO coefficient block sizes not copied!");
+  }
+
+  if(D_.num_blocks() != ref_wfn.getD().num_blocks()) {
+    throw PSIEXCEPTION("Density matrix blocks not copied!");
+  }
+
+  if(D_.block_dims() != ref_wfn.getD().block_dims()) {
+    throw PSIEXCEPTION("Density matrix block sizes not copied!");
+  }
+
+
+  for (int i = 0; i < nso_; i++) {
+    for (int j = 0; j < nso_; j++) {
+      if (H_(i, j) != ref_wfn.getH()(i, j)) {
+        throw PSIEXCEPTION("Hamiltonian not copied!");
+      }
+      if (S_(i, j) != ref_wfn.getS()(i, j)) {
+        throw PSIEXCEPTION("Overlap not copied!");
+      }
+      if (X_(i, j) != ref_wfn.getX()(i, j)) {
+        throw PSIEXCEPTION("Orthogonalization matrix not copied!");
+      }
+      if (F_(i, j) != ref_wfn.getF()(i, j)) {
+        throw PSIEXCEPTION("Fock matrix not copied!");
+      }
+      if (Ft_(i, j) != ref_wfn.getFt()(i, j)) {
+        throw PSIEXCEPTION("Transformed Fock matrix not copied!");
+      }
+      if (C_(i, j) != ref_wfn.getC()(i, j)) {
+        throw PSIEXCEPTION("MO coefficients not copied!");
+      }
+      if (Cocc_(i, j) != ref_wfn.getCocc()(i, j)) {
+        throw PSIEXCEPTION("Occupied MO coefficients not copied!");
+      }
+      if (D_(i, j) != ref_wfn.getD()(i, j)) {
+        throw PSIEXCEPTION("Density matrix not copied!");
+      }
+    }
+
+    if (evals_(i) != ref_wfn.getEvals()(i)) {
+      throw PSIEXCEPTION("Orbital energies not copied!");
+    }
+  }
+}
+
+EinsumsRHF::~EinsumsRHF() {}
+
+void EinsumsRHF::init_integrals() {
   // The basisset object contains all of the basis information and is formed in
   // the new_wavefunction call The integral factory oversees the creation of
   // integral objects
@@ -261,7 +416,7 @@ void EinsumsSCF::init_integrals() {
   }
 }
 
-double EinsumsSCF::compute_electronic_energy() {
+double EinsumsRHF::compute_electronic_energy() {
   // Compute the electronic energy: (H + F)_pq * D_pq -> energy
 
   einsums::Tensor<double, 0> e_tens;
@@ -294,7 +449,7 @@ double EinsumsSCF::compute_electronic_energy() {
   return out + scalar_variable("-D ENERGY");
 }
 
-void EinsumsSCF::update_Cocc(const einsums::Tensor<double, 1> &energies) {
+void EinsumsRHF::update_Cocc(const einsums::Tensor<double, 1> &energies) {
   // Update occupation.
 
   for (int i = 0; i < nirrep_; i++) {
@@ -329,7 +484,7 @@ void EinsumsSCF::update_Cocc(const einsums::Tensor<double, 1> &energies) {
   }
 }
 
-void EinsumsSCF::compute_diis_coefs(
+void EinsumsRHF::compute_diis_coefs(
     const std::deque<einsums::BlockTensor<double, 2>> &errors,
     std::vector<double> *out) const {
   einsums::Tensor<double, 2> *B_mat = new einsums::Tensor<double, 2>(
@@ -367,7 +522,7 @@ void EinsumsSCF::compute_diis_coefs(
   delete B_mat;
 }
 
-void EinsumsSCF::compute_diis_fock(
+void EinsumsRHF::compute_diis_fock(
     const std::vector<double> &coefs,
     const std::deque<einsums::BlockTensor<double, 2>> &focks,
     einsums::BlockTensor<double, 2> *out) const {
@@ -379,7 +534,7 @@ void EinsumsSCF::compute_diis_fock(
   }
 }
 
-double EinsumsSCF::compute_energy() {
+double EinsumsRHF::compute_energy() {
   timer_on("EinHF: Computing energy");
   if (diis_max_iters_ != 0) {
     outfile->Printf("Performing DIIS with %d vectors.\n", diis_max_iters_);
@@ -396,7 +551,7 @@ double EinsumsSCF::compute_energy() {
   auto SDF = new einsums::BlockTensor<double, 2>("SDF", irrep_sizes_);
   auto Evecs =
       new einsums::BlockTensor<double, 2>("Eigenvectors", irrep_sizes_);
-  auto Evals = new einsums::Tensor<double, 1>("Eigenvalues", nso_);
+  // auto Evals = new einsums::Tensor<double, 1>("Eigenvalues", nso_);
 
   auto J = new einsums::BlockTensor<double, 2>("J matrix", irrep_sizes_);
   auto K = new einsums::BlockTensor<double, 2>("K matrix", irrep_sizes_);
@@ -412,36 +567,31 @@ double EinsumsSCF::compute_energy() {
   std::vector<int> old_occs;
   einsums::Tensor<double, 0> *dRMS_tens = new einsums::Tensor<double, 0>();
 
-#pragma omp task depend(in : this->S_) depend(out : this -> X_)
-  {
-    timer_on("Form X");
-    // Form the X_ matrix (S^-1/2)
-    X_ = einsums::linear_algebra::pow(S_, -0.5);
-    timer_off("Form X");
-  }
+  timer_on("Form X");
+  // Form the X_ matrix (S^-1/2)
+  X_ = einsums::linear_algebra::pow(S_, -0.5);
+  timer_off("Form X");
 
-#pragma omp task depend(in : this->H_) depend(out : this -> F_)
-  {
-    timer_on("Set guess");
-    F_ = H_;
-    timer_off("Set guess");
-  }
+  timer_on("Set guess");
+  F_ = H_;
+  timer_off("Set guess");
 
-#pragma omp task depend(inout : this->JKwK_)
-  { JKwK_.zero(); }
-#pragma omp taskwait depend(in : this->F_, this->X_)
+  JKwK_.zero();
 
   timer_on("Form C");
+
   einsums::linear_algebra::gemm<false, false>(1.0, F_, X_, 0.0, Temp1);
   einsums::linear_algebra::gemm<true, false>(1.0, X_, *Temp1, 0.0, &Ft_);
-  *Evecs = Ft_;
 
-  einsums::linear_algebra::syev(Evecs, Evals);
+  *Evecs = Ft_;
+  evals_.zero();
+
+  einsums::linear_algebra::syev(Evecs, &evals_);
 
   einsums::linear_algebra::gemm<false, true>(1.0, X_, *Evecs, 0.0, &C_);
   timer_off("Form C");
 
-  update_Cocc(*Evals);
+  update_Cocc(evals_);
 
   old_occs = occ_per_irrep_;
 
@@ -464,14 +614,14 @@ double EinsumsSCF::compute_energy() {
     fprintln(*outfile->stream(), X_);
     fprintln(*outfile->stream(), C_);
     fprintln(*outfile->stream(), D_);
-    fprintln(*outfile->stream(), *Evals);
+    fprintln(*outfile->stream(), evals_);
     fprintln(*outfile->stream(), Cocc_);
   }
 
   int iter = 1;
   bool converged = false;
   double e_old;
-#pragma omp taskwait depend(in : this->JKwK_)
+
   double e_new = e_nuc_ + compute_electronic_energy();
 
   outfile->Printf("    Energy from core Hamiltonian guess: %20.16f\n\n", e_new);
@@ -512,12 +662,10 @@ double EinsumsSCF::compute_energy() {
     e_old = e_new;
 
     timer_on("Form F");
-// Add the core Hamiltonian term to the Fock operator
-#pragma omp task depend(in : this->H_) depend(out : this -> F_)
-    { F_ = H_; }
+    // Add the core Hamiltonian term to the Fock operator
+    F_ = H_;
 
-#pragma omp task depend(inout : this->JKwK_)
-    { JKwK_.zero(); }
+    JKwK_.zero();
 
     // The JK object handles all of the two electron integrals
     // To enhance efficiency it does use the density, but the orbitals
@@ -547,29 +695,23 @@ double EinsumsSCF::compute_energy() {
     Cl.push_back(CTemp);
     jk_->compute();
 
-#pragma omp task depend(out : *J)
-    {
-      timer_on("Form J");
-      const std::vector<SharedMatrix> &J_mat = jk_->J();
+    timer_on("Form J");
+    const std::vector<SharedMatrix> &J_mat = jk_->J();
 #pragma omp parallel for
-      for (int i = 0; i < nirrep_; i++) {
-        if (irrep_sizes_[i] == 0) {
-          continue;
-        }
-#pragma omp parallel for
-        for (int j = 0; j < irrep_sizes_[i]; j++) {
-#pragma omp parallel for
-          for (int k = 0; k < irrep_sizes_[i]; k++) {
+    for (int i = 0; i < nirrep_; i++) {
+      if (irrep_sizes_[i] == 0) {
+        continue;
+      }
+#pragma omp parallel for collapse(2)
+      for (int j = 0; j < irrep_sizes_[i]; j++) {
+        for (int k = 0; k < irrep_sizes_[i]; k++) {
             (*J)[i](j, k) = 2 * J_mat[0]->get(i, j, k);
           }
         }
       }
       timer_off("Form J");
-    }
 
     if (func_->is_x_hybrid() && !(func_->is_x_lrc() && jk_->get_wcombine())) {
-#pragma omp task depend(out : *K)
-      {
         const std::vector<SharedMatrix> &K_mat = jk_->K();
         double alpha = func_->x_alpha();
         timer_on("Form K");
@@ -588,11 +730,8 @@ double EinsumsSCF::compute_energy() {
         }
         timer_off("Form K");
       }
-    }
 
     if (func_->is_x_lrc()) {
-#pragma omp task depend(out : *wK)
-      {
         const std::vector<SharedMatrix> &wK_mat = jk_->wK();
         double beta = func_->x_beta();
         timer_on("Form wK");
@@ -610,12 +749,9 @@ double EinsumsSCF::compute_energy() {
           }
         }
         timer_off("Form wK");
-      }
     }
 
     if (func_->needs_xc()) {
-#pragma omp task depend(in : this->D_) depend(out : *V)
-      {
         SharedMatrix D_mat = std::make_shared<Matrix>(
                          nirrep_, irrep_sizes_.data(), irrep_sizes_.data()),
                      V_mat = std::make_shared<Matrix>(
@@ -648,41 +784,29 @@ double EinsumsSCF::compute_energy() {
             }
           }
         }
-      }
     }
 
-#pragma omp task depend(in : *J) depend(out : this -> F_, this->JKwK_)
-    {
-      F_ += *J;
-      JKwK_ += *J;
-    }
+    F_ += *J;
+    JKwK_ += *J;
     if (func_->is_x_hybrid() && !(func_->is_x_lrc() && jk_->get_wcombine())) {
-#pragma omp task depend(in : *K) depend(out : this -> F_, this->JKwK_)
-      {
-        F_ -= *K;
-        JKwK_ -= *K;
-      }
+      F_ -= *K;
+      JKwK_ -= *K;
     }
 
     if (func_->is_x_lrc()) {
-#pragma omp task depend(in : *wK) depend(out : this -> F_, this->JKwK_)
-      {
-        F_ -= *wK;
-        JKwK_ -= *wK;
-      }
+      F_ -= *wK;
+      JKwK_ -= *wK;
     }
 
     if (func_->needs_xc()) {
-#pragma omp task depend(in : *V) depend(out : this -> F_)
-      { F_ += *V; }
+      F_ += *V;
     }
 
-// I don't think this will cause a slowdown since the next part will do the same
-// thing.
-#pragma omp taskwait depend(in : this->F_)
     timer_off("Form F");
 
 // Compute the orbital gradient, FDS-SDF
+  #pragma omp taskgroup
+  {
 #pragma omp task depend(in : this->D_, this->S_, this->F_) depend(out : *FDS)
     {
       einsums::linear_algebra::gemm<false, false>(1.0, D_, S_, 0.0, Temp1);
@@ -693,20 +817,15 @@ double EinsumsSCF::compute_energy() {
       einsums::linear_algebra::gemm<false, false>(1.0, D_, F_, 0.0, Temp2);
       einsums::linear_algebra::gemm<false, false>(1.0, S_, *Temp2, 0.0, SDF);
     }
+  }
 
-#pragma omp task depend(in : *FDS, *SDF) depend(out : *Temp1)
-    {
       *Temp1 = *FDS;
       *Temp1 -= *SDF;
-    }
 
     // Density RMS
     *dRMS_tens = 0;
 
     if (diis_max_iters_ > 0) {
-#pragma omp task depend(in : *Temp1)                                           \
-    depend(inout : *errors, *focks, this -> F_, *coefs, *error_vals)
-      {
         timer_on("Perform DIIS");
 
         if (errors->size() == diis_max_iters_) {
@@ -735,10 +854,7 @@ double EinsumsSCF::compute_energy() {
         compute_diis_fock(*coefs, *focks, &F_);
         timer_off("Perform DIIS");
       }
-    }
 
-#pragma omp task depend(in : *Temp1) depend(out : *dRMS_tens)
-    {
       einsums::tensor_algebra::einsum(
           0.0, einsums::tensor_algebra::Indices{}, dRMS_tens,
           1.0 / (nso_ * nso_),
@@ -748,17 +864,14 @@ double EinsumsSCF::compute_energy() {
           einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
                                            einsums::tensor_algebra::index::j},
           *Temp1);
-    }
 
 // Compute the energy
-#pragma omp taskwait depend(in : this->F_, this->D_, this->H_)
     timer_on("Compute electronic energy");
     e_new = e_nuc_ + compute_electronic_energy();
     timer_off("Compute electronic energy");
 
     double dE = e_new - e_old;
 
-#pragma omp taskwait depend(in : *dRMS_tens)
     double dRMS = std::sqrt((double)*dRMS_tens);
 
     converged = (fabs(dE) < e_convergence_) && (dRMS < d_convergence_);
@@ -775,12 +888,12 @@ double EinsumsSCF::compute_energy() {
     einsums::linear_algebra::gemm<true, false>(1.0, X_, *Temp1, 0.0, &Ft_);
 
     *Evecs = Ft_;
-    einsums::linear_algebra::syev(Evecs, Evals);
+    einsums::linear_algebra::syev(Evecs, &evals_);
 
     einsums::linear_algebra::gemm<false, true>(1.0, X_, *Evecs, 0.0, &C_);
     timer_off("Form C");
 
-    update_Cocc(*Evals);
+    update_Cocc(evals_);
 
     timer_on("Form D");
     einsums::tensor_algebra::einsum(
@@ -826,13 +939,10 @@ double EinsumsSCF::compute_energy() {
 
     // Optional printing
     if (print_ > 3) {
-#pragma omp taskwait depend(in : this->Ft_, this->F_, *Evecs, *Evals,          \
-                                this->C_, this->D_, *FDS, *SDF, *Temp1,        \
-                                *errors, *focks, *coefs)
       fprintln(*outfile->stream(), Ft_);
       fprintln(*outfile->stream(), F_);
       fprintln(*outfile->stream(), *Evecs);
-      fprintln(*outfile->stream(), *Evals);
+      fprintln(*outfile->stream(), evals_);
       fprintln(*outfile->stream(), C_);
       fprintln(*outfile->stream(), D_);
       fprintln(*outfile->stream(), *FDS);
@@ -858,7 +968,6 @@ double EinsumsSCF::compute_energy() {
   if (!converged)
     throw PSIEXCEPTION("The SCF iterations did not converge.");
 
-  Evals->set_name("Orbital Energies");
   outfile->Printf("\nOccupied:\n");
 
   std::vector<int> inds(nirrep_);
@@ -874,8 +983,8 @@ double EinsumsSCF::compute_energy() {
       if (inds[j] >= occ_per_irrep_[j]) {
         continue;
       }
-      if ((*Evals)(S_.block_range(j)[0] + inds[j]) < curr_min) {
-        curr_min = (*Evals)(S_.block_range(j)[0] + inds[j]);
+      if (evals_(S_.block_range(j)[0] + inds[j]) < curr_min) {
+        curr_min = evals_(S_.block_range(j)[0] + inds[j]);
         min_ind = j;
       }
     }
@@ -895,8 +1004,8 @@ double EinsumsSCF::compute_energy() {
       if (inds[j] >= irrep_sizes_[j]) {
         continue;
       }
-      if ((*Evals)(S_.block_range(j)[0] + inds[j]) < curr_min) {
-        curr_min = (*Evals)(S_.block_range(j)[0] + inds[j]);
+      if (evals_(S_.block_range(j)[0] + inds[j]) < curr_min) {
+        curr_min = evals_(S_.block_range(j)[0] + inds[j]);
         min_ind = j;
       }
     }
@@ -915,7 +1024,6 @@ double EinsumsSCF::compute_energy() {
   delete Temp1;
   delete Temp2;
   delete Evecs;
-  delete Evals;
   delete FDS;
   delete SDF;
 
@@ -931,7 +1039,7 @@ double EinsumsSCF::compute_energy() {
   return e_new;
 }
 
-void EinsumsSCF::print_header() {
+void EinsumsRHF::print_header() {
   int nthread = Process::environment.get_n_threads();
 
   outfile->Printf("\n");

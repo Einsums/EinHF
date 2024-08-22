@@ -28,6 +28,8 @@
  * @END LICENSE
  */
 
+#pragma once
+
 #include "einsums.hpp"
 #include <deque>
 #include <vector>
@@ -51,10 +53,14 @@ public:
   EinsumsUHF(SharedWavefunction ref_wfn,
              const std::shared_ptr<SuperFunctional> &functional,
              Options &options);
+  /// Copy constructor.
+  EinsumsUHF(const EinsumsUHF &ref_wfn);
+  /// Another constructor.
+  EinsumsUHF(const EinsumsUHF &ref_wfn, Options &options);
   /// The destuctor
   ~EinsumsUHF();
   /// Computes the SCF energy, and returns it
-  double compute_energy();
+  virtual double compute_energy();
 
   void
   compute_diis_coefs(const std::deque<einsums::BlockTensor<double, 2>> &errors,
@@ -65,7 +71,62 @@ public:
                     const std::deque<einsums::BlockTensor<double, 2>> &focks,
                     einsums::BlockTensor<double, 2> *out) const;
 
-  void print_header();
+  virtual void print_header();
+
+  const einsums::BlockTensor<double, 2> &getH() const { return H_; }
+  const einsums::BlockTensor<double, 2> &getS() const { return S_; }
+  const einsums::BlockTensor<double, 2> &getX() const { return X_; }
+  const einsums::BlockTensor<double, 2> &getF() const { return Fa_; }
+  const einsums::BlockTensor<double, 2> &getFt() const { return Fta_; }
+  const einsums::BlockTensor<double, 2> &getC() const { return Ca_; }
+  const einsums::BlockTensor<double, 2> &getCocc() const { return Cocca_; }
+  const einsums::BlockTensor<double, 2> &getD() const { return Da_; }
+  const einsums::Tensor<double, 1> &getEvals() const { return evalsa_; }
+  const std::vector<int> &getIrrepSizes() const { return irrep_sizes_; }
+  const std::vector<int> &getOccPerIrrep() const { return aocc_per_irrep_; }
+
+  einsums::BlockTensor<double, 2> &getH() { return H_; }
+  einsums::BlockTensor<double, 2> &getS() { return S_; }
+  einsums::BlockTensor<double, 2> &getX() { return X_; }
+  einsums::BlockTensor<double, 2> &getF() { return Fa_; }
+  einsums::BlockTensor<double, 2> &getFt() { return Fta_; }
+  einsums::BlockTensor<double, 2> &getC() { return Ca_; }
+  einsums::BlockTensor<double, 2> &getCocc() { return Cocca_; }
+  einsums::BlockTensor<double, 2> &getD() { return Da_; }
+  einsums::Tensor<double, 1> &getEvals() { return evalsa_; }
+
+  const einsums::BlockTensor<double, 2> &getFa() const { return Fa_; }
+  const einsums::BlockTensor<double, 2> &getFta() const { return Fta_; }
+  const einsums::BlockTensor<double, 2> &getCa() const { return Ca_; }
+  const einsums::BlockTensor<double, 2> &getCocca() const { return Cocca_; }
+  const einsums::BlockTensor<double, 2> &getDa() const { return Da_; }
+  const einsums::Tensor<double, 1> &getEvalsa() const { return evalsa_; }
+  const std::vector<int> &getAOccPerIrrep() const { return aocc_per_irrep_; }
+
+  einsums::BlockTensor<double, 2> &getFa() { return Fa_; }
+  einsums::BlockTensor<double, 2> &getFta() { return Fta_; }
+  einsums::BlockTensor<double, 2> &getCa() { return Ca_; }
+  einsums::BlockTensor<double, 2> &getCocca() { return Cocca_; }
+  einsums::BlockTensor<double, 2> &getDa() { return Da_; }
+  einsums::Tensor<double, 1> &getEvalsa() { return evalsa_; }
+
+  const einsums::BlockTensor<double, 2> &getFb() const { return Fb_; }
+  const einsums::BlockTensor<double, 2> &getFtb() const { return Ftb_; }
+  const einsums::BlockTensor<double, 2> &getCb() const { return Cb_; }
+  const einsums::BlockTensor<double, 2> &getCoccb() const { return Coccb_; }
+  const einsums::BlockTensor<double, 2> &getDb() const { return Db_; }
+  const einsums::Tensor<double, 1> &getEvalsb() const { return evalsb_; }
+  const std::vector<int> &getBOccPerIrrep() const { return bocc_per_irrep_; }
+
+  einsums::BlockTensor<double, 2> &getFb() { return Fb_; }
+  einsums::BlockTensor<double, 2> &getFtb() { return Ftb_; }
+  einsums::BlockTensor<double, 2> &getCb() { return Cb_; }
+  einsums::BlockTensor<double, 2> &getCoccb() { return Coccb_; }
+  einsums::BlockTensor<double, 2> &getDb() { return Db_; }
+  einsums::Tensor<double, 1> &getEvalsb() { return evalsb_; }
+
+  int getNAocc() const { return naocc_; }
+  int getNBocc() const { return nbocc_; }
 
 protected:
   /// The amount of information to print to the output file
@@ -109,6 +170,8 @@ protected:
   einsums::BlockTensor<double, 2> Cocca_, Coccb_;
   /// The density matrix
   einsums::BlockTensor<double, 2> Da_, Db_;
+  /// The orbital energies.
+  einsums::Tensor<double, 1> evalsa_, evalsb_;
   /// The ubiquitous JK object
   std::shared_ptr<JK> jk_;
   /// The functional.
