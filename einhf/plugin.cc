@@ -50,7 +50,6 @@
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
-#include "psi4/libqt/qt.h"
 #include "psi4/libscf_solver/rhf.h"
 #include "psi4/psi4-dec.h"
 
@@ -118,9 +117,11 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
 
   if (!psi::outfile) {
     printf("No output file.\n");
+    psi::outfile = std::make_shared<psi::PsiOutStream>(options.get_str("OUTFILE"));
   }
 
   psi::outfile->Printf("Initializing Einsums.\n");
+
   einsums::initialize(einsums::detail::dummy_argv);
   if ((to_lower(options.get_str("REFERENCE")) == "rhf" ||
        to_lower(options.get_str("REFERENCE")) == "rks") &&
@@ -228,6 +229,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
     }
   } else if (to_lower(options.get_str("METHOD")) == "scf") {
     einsums::finalize();
+    psi::timer_done();
     return outwfn;
   } else {
     throw PSIEXCEPTION("Unrecognized method" + options.get_str("METHOD"));
@@ -235,6 +237,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
 
   if (to_lower(options.get_str("METHOD")) == "mp2") {
     einsums::finalize();
+    psi::timer_done();
     return outwfn;
   } else {
     throw PSIEXCEPTION("Unrecognized method" + options.get_str("METHOD"));
