@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "einsums.hpp"
+#include <Einsums/Tensor.hpp>
 #include <deque>
 #include <vector>
 
@@ -46,8 +46,8 @@ class JK;
 namespace einhf {
 
 struct MP2ScaleFunction
-    : public virtual einsums::tensor_props::FunctionTensorBase<double, 4>,
-      virtual einsums::tensor_props::CoreTensorBase {
+    : public virtual einsums::tensor_base::FunctionTensor<double, 4>,
+      virtual einsums::tensor_base::CoreTensor {
 private:
   einsums::Tensor<double, 1> _evalsi, _evalsa, _evalsj, _evalsb;
 
@@ -59,7 +59,7 @@ public:
                    const einsums::TensorView<double, 1> &evalsa,
                    const einsums::TensorView<double, 1> &evalsj,
                    const einsums::TensorView<double, 1> &evalsb)
-      : einsums::tensor_props::FunctionTensorBase<double, 4>(
+      : einsums::tensor_base::FunctionTensor<double, 4>(
             name, evalsi.dim(0), evalsa.dim(0), evalsj.dim(0), evalsb.dim(0)),
         _evalsi(evalsi), _evalsa(evalsa), _evalsj(evalsj), _evalsb(evalsb) {}
 
@@ -70,9 +70,9 @@ public:
 };
 
 struct RMP2ScaleTensor final
-    : public virtual einsums::tensor_props::TiledTensorBase<double, 4,
-                                                            MP2ScaleFunction>,
-      virtual einsums::tensor_props::CoreTensorBase {
+    : public virtual einsums::tensor_base::TiledTensor<double, 4,
+                                                       MP2ScaleFunction>,
+      virtual einsums::tensor_base::CoreTensor {
 private:
   const einsums::Tensor<double, 1> *_evals;
   std::vector<int> _irrep_offsets, _irrep_sizes;
@@ -120,7 +120,7 @@ public:
                   std::vector<int> irrep_sizes,
                   std::vector<std::string> irrep_names,
                   const einsums::Tensor<double, 1> *evals)
-      : einsums::tensor_props::TiledTensorBase<double, 4, MP2ScaleFunction>(
+      : einsums::tensor_base::TiledTensor<double, 4, MP2ScaleFunction>(
             name, occupied, unoccupied, occupied, unoccupied),
         _irrep_offsets(irrep_offsets), _irrep_sizes(irrep_sizes),
         _irrep_names(irrep_names), _evals{evals} {}

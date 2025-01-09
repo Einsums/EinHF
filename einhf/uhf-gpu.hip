@@ -30,7 +30,7 @@
 
 #include "uhf-gpu.h"
 
-#include "einsums.hpp"
+#include <Einsums/TensorAlgebra.hpp>
 
 #include "psi4/libfock/jk.h"
 #include "psi4/libfock/v.h"
@@ -45,10 +45,7 @@
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
-#include <LinearAlgebra.hpp>
-#include <_Common.hpp>
-#include <_GPUUtils.hpp>
-#include <_Index.hpp>
+#include <Einsums/LinearAlgebra.hpp>
 
 static std::string to_lower(const std::string &str) {
   std::string out(str);

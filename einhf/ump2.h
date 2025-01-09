@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "einsums.hpp"
+#include <Einsums/Tensor.hpp>
 #include <deque>
 #include <vector>
 
@@ -47,9 +47,9 @@ class JK;
 namespace einhf {
 
 struct UMP2ScaleTensor final
-    : public virtual einsums::tensor_props::TiledTensorBase<double, 4,
-                                                            MP2ScaleFunction>,
-      virtual einsums::tensor_props::CoreTensorBase {
+    : public virtual einsums::tensor_base::TiledTensor<double, 4,
+                                                       MP2ScaleFunction>,
+      virtual einsums::tensor_base::CoreTensor {
 private:
   const einsums::Tensor<double, 1> *_aevals, *_bevals;
   std::vector<int> _irrep_offsets, _irrep_sizes;
@@ -99,7 +99,7 @@ public:
                   std::vector<std::string> irrep_names,
                   const einsums::Tensor<double, 1> *aevals,
                   const einsums::Tensor<double, 1> *bevals)
-      : einsums::tensor_props::TiledTensorBase<double, 4, MP2ScaleFunction>(
+      : einsums::tensor_base::TiledTensor<double, 4, MP2ScaleFunction>(
             name, aoccupied, aunoccupied, boccupied, bunoccupied),
         _irrep_offsets(irrep_offsets), _irrep_sizes(irrep_sizes),
         _irrep_names(irrep_names), _aevals{aevals}, _bevals{bevals} {}

@@ -19,7 +19,7 @@ set DIIS TRUE
 set SCF_INITIAL_ACCELERATOR NONE
 set PRINT 1
 set SCF_TYPE PK
-set COMPUTE GPU
+set COMPUTE CPU
 set MP2_TYPE CONV
 
 set reference uhf

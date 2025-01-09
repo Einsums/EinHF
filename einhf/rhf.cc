@@ -30,8 +30,6 @@
 
 #include "rhf.h"
 
-#include "einsums.hpp"
-
 #include "psi4/libfock/jk.h"
 #include "psi4/libfock/v.h"
 #include "psi4/libfunctional/superfunctional.h"
@@ -47,9 +45,8 @@
 #include "psi4/libpsi4util/process.h"
 #include "psi4/libqt/qt.h"
 #include "psi4/psi4-dec.h"
-#include <LinearAlgebra.hpp>
-#include <_Common.hpp>
-#include <_Index.hpp>
+#include <Einsums/LinearAlgebra.hpp>
+#include <Einsums/TensorAlgebra.hpp>
 #include <cmath>
 
 static std::string to_lower(const std::string &str) {
@@ -194,70 +191,69 @@ EinsumsRHF::EinsumsRHF(const EinsumsRHF &ref_wfn, Options &options)
   func_ = ref_wfn.func_;
   v_ = ref_wfn.v_;
 
-  if(H_.num_blocks() != ref_wfn.getH().num_blocks()) {
+  if (H_.num_blocks() != ref_wfn.getH().num_blocks()) {
     throw PSIEXCEPTION("Hamiltonian blocks not copied!");
   }
 
-  if(H_.block_dims() != ref_wfn.getH().block_dims()) {
+  if (H_.block_dims() != ref_wfn.getH().block_dims()) {
     throw PSIEXCEPTION("Hamiltonian block sizes not copied!");
   }
 
-  if(S_.num_blocks() != ref_wfn.getS().num_blocks()) {
+  if (S_.num_blocks() != ref_wfn.getS().num_blocks()) {
     throw PSIEXCEPTION("Overlap blocks not copied!");
   }
 
-  if(S_.block_dims() != ref_wfn.getS().block_dims()) {
+  if (S_.block_dims() != ref_wfn.getS().block_dims()) {
     throw PSIEXCEPTION("Overlap block sizes not copied!");
   }
 
-  if(X_.num_blocks() != ref_wfn.getX().num_blocks()) {
+  if (X_.num_blocks() != ref_wfn.getX().num_blocks()) {
     throw PSIEXCEPTION("Symmetric transform matrix blocks not copied!");
   }
 
-  if(X_.block_dims() != ref_wfn.getX().block_dims()) {
+  if (X_.block_dims() != ref_wfn.getX().block_dims()) {
     throw PSIEXCEPTION("Symmetric transform matrix block sizes not copied!");
   }
 
-  if(F_.num_blocks() != ref_wfn.getF().num_blocks()) {
+  if (F_.num_blocks() != ref_wfn.getF().num_blocks()) {
     throw PSIEXCEPTION("Fock matrix blocks not copied!");
   }
 
-  if(F_.block_dims() != ref_wfn.getF().block_dims()) {
+  if (F_.block_dims() != ref_wfn.getF().block_dims()) {
     throw PSIEXCEPTION("Fock matrix block sizes not copied!");
   }
 
-  if(Ft_.num_blocks() != ref_wfn.getFt().num_blocks()) {
+  if (Ft_.num_blocks() != ref_wfn.getFt().num_blocks()) {
     throw PSIEXCEPTION("Transformed Fock matrix blocks not copied!");
   }
 
-  if(Ft_.block_dims() != ref_wfn.getFt().block_dims()) {
+  if (Ft_.block_dims() != ref_wfn.getFt().block_dims()) {
     throw PSIEXCEPTION("Transformed Fock matrix block sizes not copied!");
   }
 
-  if(C_.num_blocks() != ref_wfn.getC().num_blocks()) {
+  if (C_.num_blocks() != ref_wfn.getC().num_blocks()) {
     throw PSIEXCEPTION("MO coefficient blocks not copied!");
   }
 
-  if(C_.block_dims() != ref_wfn.getC().block_dims()) {
+  if (C_.block_dims() != ref_wfn.getC().block_dims()) {
     throw PSIEXCEPTION("MO coefficient block sizes not copied!");
   }
 
-  if(Cocc_.num_blocks() != ref_wfn.getCocc().num_blocks()) {
+  if (Cocc_.num_blocks() != ref_wfn.getCocc().num_blocks()) {
     throw PSIEXCEPTION("Occupied MO coefficient blocks not copied!");
   }
 
-  if(Cocc_.block_dims() != ref_wfn.getCocc().block_dims()) {
+  if (Cocc_.block_dims() != ref_wfn.getCocc().block_dims()) {
     throw PSIEXCEPTION("Occupied MO coefficient block sizes not copied!");
   }
 
-  if(D_.num_blocks() != ref_wfn.getD().num_blocks()) {
+  if (D_.num_blocks() != ref_wfn.getD().num_blocks()) {
     throw PSIEXCEPTION("Density matrix blocks not copied!");
   }
 
-  if(D_.block_dims() != ref_wfn.getD().block_dims()) {
+  if (D_.block_dims() != ref_wfn.getD().block_dims()) {
     throw PSIEXCEPTION("Density matrix block sizes not copied!");
   }
-
 
   for (int i = 0; i < nso_; i++) {
     for (int j = 0; j < nso_; j++) {
@@ -428,13 +424,9 @@ double EinsumsRHF::compute_electronic_energy() {
   temp += JKwK_;
 
   einsums::tensor_algebra::einsum(
-      0.0, einsums::tensor_algebra::Indices{}, &e_tens, 1.0,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
-      D_,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
-      temp);
+      0.0, einsums::Indices{}, &e_tens, 1.0,
+      einsums::Indices{einsums::index::i, einsums::index::j}, D_,
+      einsums::Indices{einsums::index::i, einsums::index::j}, temp);
 
   double out = (double)e_tens;
 
@@ -597,15 +589,9 @@ double EinsumsRHF::compute_energy() {
 
   timer_on("Form D");
   einsums::tensor_algebra::einsum(
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
-      &D_,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::m},
-      Cocc_,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                       einsums::tensor_algebra::index::m},
-      Cocc_);
+      einsums::Indices{einsums::index::i, einsums::index::j}, &D_,
+      einsums::Indices{einsums::index::i, einsums::index::m}, Cocc_,
+      einsums::Indices{einsums::index::j, einsums::index::m}, Cocc_);
   timer_off("Form D");
 
   if (print_ > 3) {
@@ -705,85 +691,85 @@ double EinsumsRHF::compute_energy() {
 #pragma omp parallel for collapse(2)
       for (int j = 0; j < irrep_sizes_[i]; j++) {
         for (int k = 0; k < irrep_sizes_[i]; k++) {
-            (*J)[i](j, k) = 2 * J_mat[0]->get(i, j, k);
-          }
+          (*J)[i](j, k) = 2 * J_mat[0]->get(i, j, k);
         }
       }
-      timer_off("Form J");
+    }
+    timer_off("Form J");
 
     if (func_->is_x_hybrid() && !(func_->is_x_lrc() && jk_->get_wcombine())) {
-        const std::vector<SharedMatrix> &K_mat = jk_->K();
-        double alpha = func_->x_alpha();
-        timer_on("Form K");
+      const std::vector<SharedMatrix> &K_mat = jk_->K();
+      double alpha = func_->x_alpha();
+      timer_on("Form K");
 #pragma omp parallel for
-        for (int i = 0; i < nirrep_; i++) {
-          if (irrep_sizes_[i] == 0) {
-            continue;
-          }
+      for (int i = 0; i < nirrep_; i++) {
+        if (irrep_sizes_[i] == 0) {
+          continue;
+        }
 #pragma omp parallel for
-          for (int j = 0; j < irrep_sizes_[i]; j++) {
+        for (int j = 0; j < irrep_sizes_[i]; j++) {
 #pragma omp parallel for
-            for (int k = 0; k < irrep_sizes_[i]; k++) {
-              (*K)[i](j, k) = alpha * K_mat[0]->get(i, j, k);
-            }
+          for (int k = 0; k < irrep_sizes_[i]; k++) {
+            (*K)[i](j, k) = alpha * K_mat[0]->get(i, j, k);
           }
         }
-        timer_off("Form K");
       }
+      timer_off("Form K");
+    }
 
     if (func_->is_x_lrc()) {
-        const std::vector<SharedMatrix> &wK_mat = jk_->wK();
-        double beta = func_->x_beta();
-        timer_on("Form wK");
+      const std::vector<SharedMatrix> &wK_mat = jk_->wK();
+      double beta = func_->x_beta();
+      timer_on("Form wK");
 #pragma omp parallel for
-        for (int i = 0; i < nirrep_; i++) {
-          if (irrep_sizes_[i] == 0) {
-            continue;
-          }
+      for (int i = 0; i < nirrep_; i++) {
+        if (irrep_sizes_[i] == 0) {
+          continue;
+        }
 #pragma omp parallel for
-          for (int j = 0; j < irrep_sizes_[i]; j++) {
+        for (int j = 0; j < irrep_sizes_[i]; j++) {
 #pragma omp parallel for
-            for (int k = 0; k < irrep_sizes_[i]; k++) {
-              (*wK)[i](j, k) = beta * wK_mat[0]->get(i, j, k);
-            }
+          for (int k = 0; k < irrep_sizes_[i]; k++) {
+            (*wK)[i](j, k) = beta * wK_mat[0]->get(i, j, k);
           }
         }
-        timer_off("Form wK");
+      }
+      timer_off("Form wK");
     }
 
     if (func_->needs_xc()) {
-        SharedMatrix D_mat = std::make_shared<Matrix>(
-                         nirrep_, irrep_sizes_.data(), irrep_sizes_.data()),
-                     V_mat = std::make_shared<Matrix>(
-                         nirrep_, irrep_sizes_.data(), irrep_sizes_.data());
+      SharedMatrix D_mat = std::make_shared<Matrix>(
+                       nirrep_, irrep_sizes_.data(), irrep_sizes_.data()),
+                   V_mat = std::make_shared<Matrix>(
+                       nirrep_, irrep_sizes_.data(), irrep_sizes_.data());
 
-        for (int i = 0; i < nirrep_; i++) {
-          if (irrep_sizes_[i] == 0) {
-            continue;
-          }
-          for (int j = 0; j < irrep_sizes_[i]; j++) {
-            for (int k = 0; k < irrep_sizes_[i]; k++) {
-              (*D_mat.get())(i, j, k) = D_[i](j, k);
-            }
+      for (int i = 0; i < nirrep_; i++) {
+        if (irrep_sizes_[i] == 0) {
+          continue;
+        }
+        for (int j = 0; j < irrep_sizes_[i]; j++) {
+          for (int k = 0; k < irrep_sizes_[i]; k++) {
+            (*D_mat.get())(i, j, k) = D_[i](j, k);
           }
         }
+      }
 
-        std::vector<SharedMatrix> D_vec{D_mat};
-        std::vector<SharedMatrix> V_vec{V_mat};
+      std::vector<SharedMatrix> D_vec{D_mat};
+      std::vector<SharedMatrix> V_vec{V_mat};
 
-        v_->set_D(D_vec);
-        v_->compute_V(V_vec);
+      v_->set_D(D_vec);
+      v_->compute_V(V_vec);
 
-        for (int i = 0; i < nirrep_; i++) {
-          if (irrep_sizes_[i] == 0) {
-            continue;
-          }
-          for (int j = 0; j < irrep_sizes_[i]; j++) {
-            for (int k = 0; k < irrep_sizes_[i]; k++) {
-              (*V)[i](j, k) = V_mat->get(i, j, k);
-            }
+      for (int i = 0; i < nirrep_; i++) {
+        if (irrep_sizes_[i] == 0) {
+          continue;
+        }
+        for (int j = 0; j < irrep_sizes_[i]; j++) {
+          for (int k = 0; k < irrep_sizes_[i]; k++) {
+            (*V)[i](j, k) = V_mat->get(i, j, k);
           }
         }
+      }
     }
 
     F_ += *J;
@@ -804,240 +790,227 @@ double EinsumsRHF::compute_energy() {
 
     timer_off("Form F");
 
-// Compute the orbital gradient, FDS-SDF
-  #pragma omp taskgroup
-  {
+    // Compute the orbital gradient, FDS-SDF
+#pragma omp taskgroup
+    {
 #pragma omp task depend(in : this->D_, this->S_, this->F_) depend(out : *FDS)
-    {
-      einsums::linear_algebra::gemm<false, false>(1.0, D_, S_, 0.0, Temp1);
-      einsums::linear_algebra::gemm<false, false>(1.0, F_, *Temp1, 0.0, FDS);
-    }
+        {einsums::linear_algebra::gemm<false, false>(1.0, D_, S_, 0.0, Temp1);
+    einsums::linear_algebra::gemm<false, false>(1.0, F_, *Temp1, 0.0, FDS);
+  }
 #pragma omp task depend(in : this->D_, this->S_, this->F_) depend(out : *SDF)
-    {
-      einsums::linear_algebra::gemm<false, false>(1.0, D_, F_, 0.0, Temp2);
-      einsums::linear_algebra::gemm<false, false>(1.0, S_, *Temp2, 0.0, SDF);
+  {
+    einsums::linear_algebra::gemm<false, false>(1.0, D_, F_, 0.0, Temp2);
+    einsums::linear_algebra::gemm<false, false>(1.0, S_, *Temp2, 0.0, SDF);
+  }
+}
+
+*Temp1 = *FDS;
+*Temp1 -= *SDF;
+
+// Density RMS
+*dRMS_tens = 0;
+
+if (diis_max_iters_ > 0) {
+  timer_on("Perform DIIS");
+
+  if (errors->size() == diis_max_iters_) {
+    double max_error = -INFINITY;
+    int max_ind = -1;
+
+    for (int i = 0; i < diis_max_iters_; i++) {
+      if (error_vals->at(i) > max_error) {
+        max_error = error_vals->at(i);
+        max_ind = i;
+      }
     }
+
+    focks->at(max_ind) = F_;
+    errors->at(max_ind) = *Temp1;
+    error_vals->at(max_ind) = einsums::linear_algebra::dot(*Temp1, *Temp1);
+  } else {
+    errors->push_back(*Temp1);
+    focks->push_back(F_);
+    error_vals->push_back(einsums::linear_algebra::dot(*Temp1, *Temp1));
   }
 
-      *Temp1 = *FDS;
-      *Temp1 -= *SDF;
+  compute_diis_coefs(*errors, coefs);
 
-    // Density RMS
-    *dRMS_tens = 0;
+  compute_diis_fock(*coefs, *focks, &F_);
+  timer_off("Perform DIIS");
+}
 
-    if (diis_max_iters_ > 0) {
-        timer_on("Perform DIIS");
-
-        if (errors->size() == diis_max_iters_) {
-          double max_error = -INFINITY;
-          int max_ind = -1;
-
-          for (int i = 0; i < diis_max_iters_; i++) {
-            if (error_vals->at(i) > max_error) {
-              max_error = error_vals->at(i);
-              max_ind = i;
-            }
-          }
-
-          focks->at(max_ind) = F_;
-          errors->at(max_ind) = *Temp1;
-          error_vals->at(max_ind) =
-              einsums::linear_algebra::dot(*Temp1, *Temp1);
-        } else {
-          errors->push_back(*Temp1);
-          focks->push_back(F_);
-          error_vals->push_back(einsums::linear_algebra::dot(*Temp1, *Temp1));
-        }
-
-        compute_diis_coefs(*errors, coefs);
-
-        compute_diis_fock(*coefs, *focks, &F_);
-        timer_off("Perform DIIS");
-      }
-
-      einsums::tensor_algebra::einsum(
-          0.0, einsums::tensor_algebra::Indices{}, dRMS_tens,
-          1.0 / (nso_ * nso_),
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
-          *Temp1,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
-          *Temp1);
+einsums::tensor_algebra::einsum(
+    0.0, einsums::Indices{}, dRMS_tens, 1.0 / (nso_ * nso_),
+    einsums::Indices{einsums::index::i, einsums::index::j}, *Temp1,
+    einsums::Indices{einsums::index::i, einsums::index::j}, *Temp1);
 
 // Compute the energy
-    timer_on("Compute electronic energy");
-    e_new = e_nuc_ + compute_electronic_energy();
-    timer_off("Compute electronic energy");
+timer_on("Compute electronic energy");
+e_new = e_nuc_ + compute_electronic_energy();
+timer_off("Compute electronic energy");
 
-    double dE = e_new - e_old;
+double dE = e_new - e_old;
 
-    double dRMS = std::sqrt((double)*dRMS_tens);
+double dRMS = std::sqrt((double)*dRMS_tens);
 
-    converged = (fabs(dE) < e_convergence_) && (dRMS < d_convergence_);
+converged = (fabs(dE) < e_convergence_) && (dRMS < d_convergence_);
 
-    outfile->Printf("    * %3d %20.14f    %9.2e    %9.2e    ", iter, e_new, dE,
-                    dRMS);
-    if (focks->size() > 0) {
-      outfile->Printf("DIIS*\n");
-    } else {
-      outfile->Printf("    *\n");
-    }
-    timer_on("Form C");
-    einsums::linear_algebra::gemm<false, false>(1.0, F_, X_, 0.0, Temp1);
-    einsums::linear_algebra::gemm<true, false>(1.0, X_, *Temp1, 0.0, &Ft_);
-
-    *Evecs = Ft_;
-    einsums::linear_algebra::syev(Evecs, &evals_);
-
-    einsums::linear_algebra::gemm<false, true>(1.0, X_, *Evecs, 0.0, &C_);
-    timer_off("Form C");
-
-    update_Cocc(evals_);
-
-    timer_on("Form D");
-    einsums::tensor_algebra::einsum(
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::j},
-        &D_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::m},
-        Cocc_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                         einsums::tensor_algebra::index::m},
-        Cocc_);
-    timer_off("Form D");
-
-    if (occ_per_irrep_ != old_occs) {
-      outfile->Printf("    Occupation Changed:\n         \t");
-
-      for (int i = 0; i < S_.num_blocks(); i++) {
-        outfile->Printf("%4s\t", S_.name(i).c_str());
-      }
-
-      outfile->Printf("\n    DOCC \t");
-      for (int i = 0; i < occ_per_irrep_.size(); i++) {
-        outfile->Printf("%4d\t", occ_per_irrep_[i]);
-      }
-
-      outfile->Printf("\n    VIRT \t");
-
-      for (int i = 0; i < occ_per_irrep_.size(); i++) {
-        outfile->Printf("%4d\t", irrep_sizes_[i] - occ_per_irrep_[i]);
-      }
-
-      outfile->Printf("\n    Total\t");
-
-      for (int i = 0; i < occ_per_irrep_.size(); i++) {
-        outfile->Printf("%4d\t", irrep_sizes_[i]);
-      }
-
-      outfile->Printf("\n");
-    }
-
-    old_occs = occ_per_irrep_;
-
-    // Optional printing
-    if (print_ > 3) {
-      fprintln(*outfile->stream(), Ft_);
-      fprintln(*outfile->stream(), F_);
-      fprintln(*outfile->stream(), *Evecs);
-      fprintln(*outfile->stream(), evals_);
-      fprintln(*outfile->stream(), C_);
-      fprintln(*outfile->stream(), D_);
-      fprintln(*outfile->stream(), *FDS);
-      fprintln(*outfile->stream(), *SDF);
-      Temp1->set_name("Orbital Gradient");
-      fprintln(*outfile->stream(), *Temp1);
-
-      outfile->Printf("DIIS error size: %d\nDIIS Focks size: %d\n",
-                      errors->size(), focks->size());
-      outfile->Printf("DIIS coefs: ");
-
-      for (int i = 0; i < coefs->size(); i++) {
-        outfile->Printf("%lf ", coefs->at(i));
-      }
-      outfile->Printf("\n");
-    }
-
-    iter++;
-  }
-  outfile->Printf(
-      "    *===========================================================*\n");
-
-  if (!converged)
-    throw PSIEXCEPTION("The SCF iterations did not converge.");
-
-  outfile->Printf("\nOccupied:\n");
-
-  std::vector<int> inds(nirrep_);
-  for (int i = 0; i < nirrep_; i++) {
-    inds[i] = 0;
-  }
-
-  for (int i = 0; i < ndocc_; i++) {
-    double curr_min = INFINITY;
-    int min_ind = -1;
-
-    for (int j = 0; j < nirrep_; j++) {
-      if (inds[j] >= occ_per_irrep_[j]) {
-        continue;
-      }
-      if (evals_(S_.block_range(j)[0] + inds[j]) < curr_min) {
-        curr_min = evals_(S_.block_range(j)[0] + inds[j]);
-        min_ind = j;
-      }
-    }
-
-    inds[min_ind]++;
-    outfile->Printf("%3d %s: %lf\n", inds[min_ind],
-                    to_lower(S_[min_ind].name()).c_str(), curr_min);
-  }
-
-  outfile->Printf("Unoccupied:\n");
-
-  for (int i = ndocc_; i < nso_; i++) {
-    double curr_min = INFINITY;
-    int min_ind = -1;
-
-    for (int j = 0; j < nirrep_; j++) {
-      if (inds[j] >= irrep_sizes_[j]) {
-        continue;
-      }
-      if (evals_(S_.block_range(j)[0] + inds[j]) < curr_min) {
-        curr_min = evals_(S_.block_range(j)[0] + inds[j]);
-        min_ind = j;
-      }
-    }
-
-    inds[min_ind]++;
-    outfile->Printf("%3d %s: %lf\n", inds[min_ind],
-                    to_lower(S_[min_ind].name()).c_str(), curr_min);
-  }
-  energy_ = e_new;
-
-  delete coefs;
-  delete focks;
-  delete errors;
-  delete error_vals;
-
-  delete Temp1;
-  delete Temp2;
-  delete Evecs;
-  delete FDS;
-  delete SDF;
-
-  delete J;
-  delete K;
-  delete wK;
-  delete V;
-
-  delete dRMS_tens;
-
-  timer_off("EinHF: Computing energy");
-
-  return e_new;
+outfile->Printf("    * %3d %20.14f    %9.2e    %9.2e    ", iter, e_new, dE,
+                dRMS);
+if (focks->size() > 0) {
+  outfile->Printf("DIIS*\n");
+} else {
+  outfile->Printf("    *\n");
 }
+timer_on("Form C");
+einsums::linear_algebra::gemm<false, false>(1.0, F_, X_, 0.0, Temp1);
+einsums::linear_algebra::gemm<true, false>(1.0, X_, *Temp1, 0.0, &Ft_);
+
+*Evecs = Ft_;
+einsums::linear_algebra::syev(Evecs, &evals_);
+
+einsums::linear_algebra::gemm<false, true>(1.0, X_, *Evecs, 0.0, &C_);
+timer_off("Form C");
+
+update_Cocc(evals_);
+
+timer_on("Form D");
+einsums::tensor_algebra::einsum(
+    einsums::Indices{einsums::index::i, einsums::index::j}, &D_,
+    einsums::Indices{einsums::index::i, einsums::index::m}, Cocc_,
+    einsums::Indices{einsums::index::j, einsums::index::m}, Cocc_);
+timer_off("Form D");
+
+if (occ_per_irrep_ != old_occs) {
+  outfile->Printf("    Occupation Changed:\n         \t");
+
+  for (int i = 0; i < S_.num_blocks(); i++) {
+    outfile->Printf("%4s\t", S_.name(i).c_str());
+  }
+
+  outfile->Printf("\n    DOCC \t");
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", occ_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    VIRT \t");
+
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i] - occ_per_irrep_[i]);
+  }
+
+  outfile->Printf("\n    Total\t");
+
+  for (int i = 0; i < occ_per_irrep_.size(); i++) {
+    outfile->Printf("%4d\t", irrep_sizes_[i]);
+  }
+
+  outfile->Printf("\n");
+}
+
+old_occs = occ_per_irrep_;
+
+// Optional printing
+if (print_ > 3) {
+  fprintln(*outfile->stream(), Ft_);
+  fprintln(*outfile->stream(), F_);
+  fprintln(*outfile->stream(), *Evecs);
+  fprintln(*outfile->stream(), evals_);
+  fprintln(*outfile->stream(), C_);
+  fprintln(*outfile->stream(), D_);
+  fprintln(*outfile->stream(), *FDS);
+  fprintln(*outfile->stream(), *SDF);
+  Temp1->set_name("Orbital Gradient");
+  fprintln(*outfile->stream(), *Temp1);
+
+  outfile->Printf("DIIS error size: %d\nDIIS Focks size: %d\n", errors->size(),
+                  focks->size());
+  outfile->Printf("DIIS coefs: ");
+
+  for (int i = 0; i < coefs->size(); i++) {
+    outfile->Printf("%lf ", coefs->at(i));
+  }
+  outfile->Printf("\n");
+}
+
+iter++;
+} // namespace einhf
+outfile->Printf(
+    "    *===========================================================*\n");
+
+if (!converged)
+  throw PSIEXCEPTION("The SCF iterations did not converge.");
+
+outfile->Printf("\nOccupied:\n");
+
+std::vector<int> inds(nirrep_);
+for (int i = 0; i < nirrep_; i++) {
+  inds[i] = 0;
+}
+
+for (int i = 0; i < ndocc_; i++) {
+  double curr_min = INFINITY;
+  int min_ind = -1;
+
+  for (int j = 0; j < nirrep_; j++) {
+    if (inds[j] >= occ_per_irrep_[j]) {
+      continue;
+    }
+    if (evals_(S_.block_range(j)[0] + inds[j]) < curr_min) {
+      curr_min = evals_(S_.block_range(j)[0] + inds[j]);
+      min_ind = j;
+    }
+  }
+
+  inds[min_ind]++;
+  outfile->Printf("%3d %s: %lf\n", inds[min_ind],
+                  to_lower(S_[min_ind].name()).c_str(), curr_min);
+}
+
+outfile->Printf("Unoccupied:\n");
+
+for (int i = ndocc_; i < nso_; i++) {
+  double curr_min = INFINITY;
+  int min_ind = -1;
+
+  for (int j = 0; j < nirrep_; j++) {
+    if (inds[j] >= irrep_sizes_[j]) {
+      continue;
+    }
+    if (evals_(S_.block_range(j)[0] + inds[j]) < curr_min) {
+      curr_min = evals_(S_.block_range(j)[0] + inds[j]);
+      min_ind = j;
+    }
+  }
+
+  inds[min_ind]++;
+  outfile->Printf("%3d %s: %lf\n", inds[min_ind],
+                  to_lower(S_[min_ind].name()).c_str(), curr_min);
+}
+energy_ = e_new;
+
+delete coefs;
+delete focks;
+delete errors;
+delete error_vals;
+
+delete Temp1;
+delete Temp2;
+delete Evecs;
+delete FDS;
+delete SDF;
+
+delete J;
+delete K;
+delete wK;
+delete V;
+
+delete dRMS_tens;
+
+timer_off("EinHF: Computing energy");
+
+return e_new;
+} // namespace psi
 
 void EinsumsRHF::print_header() {
   int nthread = Process::environment.get_n_threads();

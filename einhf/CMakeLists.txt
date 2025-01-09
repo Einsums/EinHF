@@ -32,42 +32,27 @@ cmake_minimum_required(VERSION 3.15 FATAL_ERROR)
 
 project(einhf CXX)
 
+include(FetchContent)
+
+# FetchContent_Declare(Einsums
+#         GIT_REPOSITORY https://github.com/jturney/Einsums.git
+#         GIT_TAG new_structure
+#         FIND_PACKAGE_ARGS 1)
+
+fetchcontent_declare(
+        fmt
+        URL https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.tar.gz
+        URL_HASH SHA256=6cb1e6d37bdcb756dbbe59be438790db409cdb4868c66e888d5df9f13f7c027f
+        FIND_PACKAGE_ARGS 11
+)
+        
+
+FetchContent_MakeAvailable(fmt)
+
 find_package(psi4 REQUIRED)
 find_package(Einsums REQUIRED)
 
-option(BUILD_GPU "Whether to build the GPU plugin." OFF)
-
-if(BUILD_GPU)
-
-        if(NOT HIP_INSTALL_DIR)
-                message(FATAL_ERROR "Please set HIP_INSTALL_DIR.")
-        endif()
-
-        cmake_path(APPEND HIP_INSTALL_DIR "lib" "cmake" OUTPUT_VARIABLE __hip_cmake_dir)
-
-        cmake_path(APPEND __hip_cmake_dir "AMDDeviceLibs" OUTPUT_VARIABLE AMDDeviceLibs_DIR)
-        set(ENV{AMDDeviceLibs_DIR} ${AMDDeviceLibs_DIR})
-
-        cmake_path(APPEND __hip_cmake_dir "amd_comgr" OUTPUT_VARIABLE amd_comgr_DIR)
-        set(ENV{amd_comgr_DIR} ${amd_comgr_DIR})
-
-        cmake_path(APPEND __hip_cmake_dir "hipblas" OUTPUT_VARIABLE hipblas_DIR)
-        set(ENV{hipblas_DIR} ${hipblas_DIR})
-
-        cmake_path(APPEND __hip_cmake_dir "hip" OUTPUT_VARIABLE hip_DIR)
-        set(ENV{hip_DIR} ${hipblas_DIR})
-
-        cmake_path(APPEND __hip_cmake_dir "hsa-runtime64" OUTPUT_VARIABLE hsa-runtime64_DIR)
-        set(ENV{hsa-runtime64_DIR} ${hsa-runtime64_DIR})
-
-        cmake_path(APPEND __hip_cmake_dir "hipsolver" OUTPUT_VARIABLE hipsolver_DIR)
-        set(ENV{hipsolver_DIR} ${hipsolver_DIR})
-
-        enable_language(HIP)
-        find_package(hipblas REQUIRED)
-        find_package(hipsolver REQUIRED)
-        set(CURSES_NEED_NCURSES True)
-        find_package(Curses)
+if(EINSUMS_WITH_GPU_SUPPORT)
 
 add_psi4_plugin(einhf plugin.cc rhf.cc rhf-gpu.hip uhf.cc uhf-gpu.hip rmp2.cc ump2.cc rmp2-gpu.hip ump2-gpu.hip)
 target_compile_definitions(einhf PUBLIC -DBUILD_GPU)
@@ -79,7 +64,7 @@ target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AN
 target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:HIP,Clang>:-O0 -gdwarf-4 -g3 -ggdb>>)
 target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Og -g3>>)
 
-target_link_libraries(einhf PUBLIC Einsums::einsums)
+target_link_libraries(einhf PUBLIC Einsums::Einsums)
 target_include_directories(einhf PUBLIC ${Einsums_INCLUDE_DIRS})
 
 get_property(fmt_INCLUDE_DIRS TARGET fmt::fmt PROPERTY INTERFACE_INCLUDE_DIRECTORIES)

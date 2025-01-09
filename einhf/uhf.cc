@@ -30,7 +30,8 @@
 
 #include "uhf.h"
 
-#include "einsums.hpp"
+#include <Einsums/LinearAlgebra.hpp>
+#include <Einsums/TensorAlgebra.hpp>
 
 #include "psi4/libfock/jk.h"
 #include "psi4/libfock/v.h"
@@ -45,9 +46,6 @@
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
-#include <LinearAlgebra.hpp>
-#include <_Common.hpp>
-#include <_Index.hpp>
 
 using namespace einsums;
 
@@ -372,13 +370,9 @@ double EinsumsUHF::compute_electronic_energy(
   temp += JKwK;
 
   einsums::tensor_algebra::einsum(
-      0.0, einsums::tensor_algebra::Indices{}, &e_tens, 1.0,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
-      D,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
-      temp);
+      0.0, einsums::Indices{}, &e_tens, 1.0,
+      einsums::Indices{einsums::index::i, einsums::index::j}, D,
+      einsums::Indices{einsums::index::i, einsums::index::j}, temp);
   double out = (double)e_tens;
 
   if (func_->needs_xc()) {
@@ -583,10 +577,14 @@ double EinsumsUHF::compute_energy() {
   }
 
 #pragma omp task depend(inout : this->JKwKa_)
-  { JKwKa_.zero(); }
+  {
+    JKwKa_.zero();
+  }
 
 #pragma omp task depend(inout : this->JKwKb_)
-  { JKwKb_.zero(); }
+  {
+    JKwKb_.zero();
+  }
 
 // Alpha
 #pragma omp task depend(in : this->Fa_, this->X_)                              \
@@ -630,15 +628,9 @@ double EinsumsUHF::compute_energy() {
   {
     timer_on("Form Da");
     einsums::tensor_algebra::einsum(
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::j},
-        &Da_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::m},
-        Cocca_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                         einsums::tensor_algebra::index::m},
-        Cocca_);
+        einsums::Indices{einsums::index::i, einsums::index::j}, &Da_,
+        einsums::Indices{einsums::index::i, einsums::index::m}, Cocca_,
+        einsums::Indices{einsums::index::j, einsums::index::m}, Cocca_);
     timer_off("Form Da");
   }
 
@@ -646,15 +638,9 @@ double EinsumsUHF::compute_energy() {
   {
     timer_on("Form Db");
     einsums::tensor_algebra::einsum(
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::j},
-        &Db_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::m},
-        Coccb_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                         einsums::tensor_algebra::index::m},
-        Coccb_);
+        einsums::Indices{einsums::index::i, einsums::index::j}, &Db_,
+        einsums::Indices{einsums::index::i, einsums::index::m}, Coccb_,
+        einsums::Indices{einsums::index::j, einsums::index::m}, Coccb_);
     timer_off("Form Db");
   }
 
@@ -683,10 +669,14 @@ double EinsumsUHF::compute_energy() {
   timer_on("Compute electronic energy");
 #pragma omp task depend(in : this->H_, this->JKwKa_, this->Da_)                \
     depend(out : *elec_a)
-  { *elec_a = compute_electronic_energy(JKwKa_, Da_); }
+  {
+    *elec_a = compute_electronic_energy(JKwKa_, Da_);
+  }
 #pragma omp task depend(in : this->H_, this->JKwKb_, this->Db_)                \
     depend(out : *elec_b)
-  { *elec_b = compute_electronic_energy(JKwKb_, Db_); }
+  {
+    *elec_b = compute_electronic_energy(JKwKb_, Db_);
+  }
 #pragma omp taskwait depend(in : *elec_a, *elec_b)
 
   e_new += (*elec_a + *elec_b) / 2;
@@ -751,10 +741,14 @@ double EinsumsUHF::compute_energy() {
     }
 
 #pragma omp task depend(inout : this->JKwKa_)
-    { JKwKa_.zero(); }
+    {
+      JKwKa_.zero();
+    }
 
 #pragma omp task depend(inout : this->JKwKb_)
-    { JKwKb_.zero(); }
+    {
+      JKwKb_.zero();
+    }
 
     // The JK object handles all of the two electron integrals
     // To enhance efficiency it does use the density, but the orbitals
@@ -1005,7 +999,9 @@ double EinsumsUHF::compute_energy() {
 
     if (func_->needs_xc()) {
 #pragma omp task depend(in : *Va) depend(out : this -> Fa_)
-      { Fa_ += *Va; }
+      {
+        Fa_ += *Va;
+      }
     }
 
 #pragma omp task depend(in : *Ja, *Jb) depend(out : this -> Fb_, this->JKwKb_)
@@ -1033,7 +1029,9 @@ double EinsumsUHF::compute_energy() {
 
     if (func_->needs_xc()) {
 #pragma omp task depend(in : *Vb) depend(out : this -> Fb_)
-      { Fb_ += *Vb; }
+      {
+        Fb_ += *Vb;
+      }
     }
 
 #pragma omp task depend(in : this->Da_, this->S_, this->Fa_)                   \
@@ -1123,27 +1121,17 @@ double EinsumsUHF::compute_energy() {
 #pragma omp task depend(in : *Temp1a) depend(out : *dRMS_tensa)
     {
       einsums::tensor_algebra::einsum(
-          0.0, einsums::tensor_algebra::Indices{}, dRMS_tensa,
-          1.0 / (nso_ * nso_),
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
-          *Temp1a,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
-          *Temp1a);
+          0.0, einsums::Indices{}, dRMS_tensa, 1.0 / (nso_ * nso_),
+          einsums::Indices{einsums::index::i, einsums::index::j}, *Temp1a,
+          einsums::Indices{einsums::index::i, einsums::index::j}, *Temp1a);
     }
 
 #pragma omp task depend(in : *Temp1b) depend(out : *dRMS_tensb)
     {
       einsums::tensor_algebra::einsum(
-          0.0, einsums::tensor_algebra::Indices{}, dRMS_tensb,
-          1.0 / (nso_ * nso_),
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
-          *Temp1b,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
-          *Temp1b);
+          0.0, einsums::Indices{}, dRMS_tensb, 1.0 / (nso_ * nso_),
+          einsums::Indices{einsums::index::i, einsums::index::j}, *Temp1b,
+          einsums::Indices{einsums::index::i, einsums::index::j}, *Temp1b);
     }
 
 #pragma omp taskwait depend(in : *dRMS_tensa, *dRMS_tensb)
@@ -1153,10 +1141,14 @@ double EinsumsUHF::compute_energy() {
     timer_on("Compute electronic energy");
 #pragma omp task depend(in : this->H_, this->JKwKa_, this->Da_)                \
     depend(out : *elec_a)
-    { *elec_a = compute_electronic_energy(JKwKa_, Da_); }
+    {
+      *elec_a = compute_electronic_energy(JKwKa_, Da_);
+    }
 #pragma omp task depend(in : this->H_, this->JKwKb_, this->Db_)                \
     depend(out : *elec_b)
-    { *elec_b = compute_electronic_energy(JKwKb_, Db_); }
+    {
+      *elec_b = compute_electronic_energy(JKwKb_, Db_);
+    }
 #pragma omp taskwait depend(in : *elec_a, *elec_b)
 
     e_new = e_nuc_ + (*elec_a + *elec_b) / 2;
@@ -1249,15 +1241,9 @@ double EinsumsUHF::compute_energy() {
     {
       timer_on("Form Da");
       einsums::tensor_algebra::einsum(
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
-          &Da_,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::m},
-          Cocca_,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                           einsums::tensor_algebra::index::m},
-          Cocca_);
+          einsums::Indices{einsums::index::i, einsums::index::j}, &Da_,
+          einsums::Indices{einsums::index::i, einsums::index::m}, Cocca_,
+          einsums::Indices{einsums::index::j, einsums::index::m}, Cocca_);
       timer_off("Form Da");
     }
 
@@ -1265,15 +1251,9 @@ double EinsumsUHF::compute_energy() {
     {
       timer_on("Form Db");
       einsums::tensor_algebra::einsum(
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
-          &Db_,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::m},
-          Coccb_,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                           einsums::tensor_algebra::index::m},
-          Coccb_);
+          einsums::Indices{einsums::index::i, einsums::index::j}, &Db_,
+          einsums::Indices{einsums::index::i, einsums::index::m}, Coccb_,
+          einsums::Indices{einsums::index::j, einsums::index::m}, Coccb_);
       timer_off("Form Db");
     }
 
@@ -1320,22 +1300,14 @@ double EinsumsUHF::compute_energy() {
   einsums::Tensor<double, 0> spin;
 
   einsums::tensor_algebra::einsum(
-      0.0, einsums::tensor_algebra::Indices{}, &spin, 0.5,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
-      Da_,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
-      Da_);
+      0.0, einsums::Indices{}, &spin, 0.5,
+      einsums::Indices{einsums::index::i, einsums::index::j}, Da_,
+      einsums::Indices{einsums::index::i, einsums::index::j}, Da_);
 
   einsums::tensor_algebra::einsum(
-      1.0, einsums::tensor_algebra::Indices{}, &spin, -0.5,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
-      Db_,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
-      Db_);
+      1.0, einsums::Indices{}, &spin, -0.5,
+      einsums::Indices{einsums::index::i, einsums::index::j}, Db_,
+      einsums::Indices{einsums::index::i, einsums::index::j}, Db_);
 
   double s_squared = (double)spin * ((double)spin + 1);
   double s2_expected =

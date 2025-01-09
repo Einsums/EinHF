@@ -30,7 +30,9 @@
 
 #include "rhf-gpu.h"
 
-#include "einsums.hpp"
+#include <Einsums/LinearAlgebra.hpp>
+#include <Einsums/Tensor.hpp>
+#include <Einsums/TensorAlgebra.hpp>
 
 #include "psi4/libfock/jk.h"
 #include "psi4/libmints/basisset.h"
@@ -45,9 +47,6 @@
 #include "psi4/libpsi4util/process.h"
 #include "psi4/libqt/qt.h"
 #include "psi4/psi4-dec.h"
-#include <LinearAlgebra.hpp>
-#include <_Common.hpp>
-#include <_Index.hpp>
 #include <cmath>
 
 static std::string to_lower(const std::string &str) {
@@ -442,7 +441,9 @@ double GPUEinsumsRHF::compute_energy() {
     timer_off("Set guess");
   }
 #pragma omp task depend(inout : this->JKwK_)
-  { JKwK_.zero(); }
+  {
+    JKwK_.zero();
+  }
 #pragma omp taskwait depend(in : this->F_, this->X_)
 
   timer_on("Form C");
@@ -527,10 +528,14 @@ double GPUEinsumsRHF::compute_energy() {
     timer_on("Form F");
 // Add the core Hamiltonian term to the Fock operator
 #pragma omp task depend(in : this->H_) depend(out : this -> F_)
-    { F_ = H_; }
+    {
+      F_ = H_;
+    }
 
 #pragma omp task depend(inout : this->JKwK_)
-    { JKwK_.zero(); }
+    {
+      JKwK_.zero();
+    }
 
     // The JK object handles all of the two electron integrals
     // To enhance efficiency it does use the density, but the orbitals
@@ -669,7 +674,9 @@ double GPUEinsumsRHF::compute_energy() {
 
     if (func_->needs_xc()) {
 #pragma omp task depend(in : *V) depend(out : this -> F_)
-      { F_ += *V; }
+      {
+        F_ += *V;
+      }
     }
 
 // I don't think this will cause a slowdown since the next part will do the same
@@ -821,7 +828,7 @@ double GPUEinsumsRHF::compute_energy() {
 
     // Optional printing
     if (print_ > 3) {
-#pragma omp taskwait depend(in : this->Ft_, this->F_, *Evecs, this->evals_,          \
+#pragma omp taskwait depend(in : this->Ft_, this->F_, *Evecs, this->evals_,    \
                                 this->C_, this->D_, *FDS, *SDF, *Temp1,        \
                                 *errors, *focks, *coefs)
       fprintln(*outfile->stream(), Ft_);

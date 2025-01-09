@@ -31,8 +31,8 @@
 #include "uhf-gpu.h"
 #include "ump2-gpu.h"
 
-#include "einsums.hpp"
-#include "einsums/Tensor.hpp"
+#include <Einsums/TensorAlgebra.hpp>
+#include <Einsums/LinearAlgebra.hpp>
 
 #include "psi4/libfock/jk.h"
 #include "psi4/libfock/v.h"
@@ -50,9 +50,6 @@
 #include "psi4/libpsi4util/process.h"
 #include "psi4/libqt/qt.h"
 #include "psi4/psi4-dec.h"
-#include <LinearAlgebra.hpp>
-#include <_Common.hpp>
-#include <_Index.hpp>
 #include <cmath>
 
 static std::string to_lower(const std::string &str) {

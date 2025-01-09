@@ -30,7 +30,8 @@
 
 #pragma once
 
-#include "einsums.hpp"
+#include <Einsums/Tensor.hpp>
+
 #include <deque>
 #include <vector>
 
