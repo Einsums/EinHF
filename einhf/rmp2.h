@@ -30,7 +30,8 @@
 
 #pragma once
 
-#include "einsums.hpp"
+#include "Einsums/Tensor.hpp"
+#include "Einsums/TensorAlgebra.hpp"
 #include <deque>
 #include <vector>
 
@@ -46,8 +47,7 @@ class JK;
 namespace einhf {
 
 struct MP2ScaleFunction
-    : public virtual einsums::tensor_props::FunctionTensorBase<double, 4>,
-      virtual einsums::tensor_props::CoreTensorBase {
+    : public virtual einsums::tensor_base::FunctionTensor<double, 4> {
 private:
   einsums::Tensor<double, 1> _evalsi, _evalsa, _evalsj, _evalsb;
 
@@ -59,26 +59,26 @@ public:
                    const einsums::TensorView<double, 1> &evalsa,
                    const einsums::TensorView<double, 1> &evalsj,
                    const einsums::TensorView<double, 1> &evalsb)
-      : einsums::tensor_props::FunctionTensorBase<double, 4>(
+      : einsums::tensor_base::FunctionTensor<double, 4>(
             name, evalsi.dim(0), evalsa.dim(0), evalsj.dim(0), evalsb.dim(0)),
         _evalsi(evalsi), _evalsa(evalsa), _evalsj(evalsj), _evalsb(evalsb) {}
 
-  double call(const std::array<int, 4> &inds) const override {
+  double call(const std::array<ptrdiff_t, 4> &inds) const override {
     return 1.0 / ((_evalsi)(inds[0]) + (_evalsj)(inds[2]) - (_evalsa)(inds[1]) -
                   (_evalsb)(inds[3]));
   }
 };
 
 struct RMP2ScaleTensor final
-    : public virtual einsums::tensor_props::TiledTensorBase<double, 4,
-                                                            MP2ScaleFunction>,
-      virtual einsums::tensor_props::CoreTensorBase {
+    : public virtual einsums::tensor_base::TiledTensor<double, 4,
+                                                       MP2ScaleFunction>,
+      virtual einsums::tensor_base::CoreTensor {
 private:
   const einsums::Tensor<double, 1> *_evals;
   std::vector<int> _irrep_offsets, _irrep_sizes;
   std::vector<std::string> _irrep_names;
 
-  virtual void add_tile(std::array<int, 4> pos) override {
+  virtual void add_tile(std::array<int, 4> const &pos) override {
     std::string tile_name = name() + " - (";
     einsums::Dim<4> dims{};
 
@@ -120,7 +120,7 @@ public:
                   std::vector<int> irrep_sizes,
                   std::vector<std::string> irrep_names,
                   const einsums::Tensor<double, 1> *evals)
-      : einsums::tensor_props::TiledTensorBase<double, 4, MP2ScaleFunction>(
+      : einsums::tensor_base::TiledTensor<double, 4, MP2ScaleFunction>(
             name, occupied, unoccupied, occupied, unoccupied),
         _irrep_offsets(irrep_offsets), _irrep_sizes(irrep_sizes),
         _irrep_names(irrep_names), _evals{evals} {}

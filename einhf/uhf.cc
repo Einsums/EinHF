@@ -30,7 +30,8 @@
 
 #include "uhf.h"
 
-#include "einsums.hpp"
+#include "Einsums/Tensor.hpp"
+#include "Einsums/TensorAlgebra.hpp"
 
 #include "psi4/libfock/jk.h"
 #include "psi4/libfock/v.h"
@@ -45,9 +46,7 @@
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
-#include <LinearAlgebra.hpp>
-#include <_Common.hpp>
-#include <_Index.hpp>
+#include <Einsums/LinearAlgebra.hpp>
 
 using namespace einsums;
 
@@ -372,12 +371,12 @@ double EinsumsUHF::compute_electronic_energy(
   temp += JKwK;
 
   einsums::tensor_algebra::einsum(
-      0.0, einsums::tensor_algebra::Indices{}, &e_tens, 1.0,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
+      0.0, einsums::Indices{}, &e_tens, 1.0,
+      einsums::Indices{einsums::index::i,
+                                       einsums::index::j},
       D,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
+      einsums::Indices{einsums::index::i,
+                                       einsums::index::j},
       temp);
   double out = (double)e_tens;
 
@@ -630,14 +629,14 @@ double EinsumsUHF::compute_energy() {
   {
     timer_on("Form Da");
     einsums::tensor_algebra::einsum(
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::j},
+        einsums::Indices{einsums::index::i,
+                                         einsums::index::j},
         &Da_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::m},
+        einsums::Indices{einsums::index::i,
+                                         einsums::index::m},
         Cocca_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                         einsums::tensor_algebra::index::m},
+        einsums::Indices{einsums::index::j,
+                                         einsums::index::m},
         Cocca_);
     timer_off("Form Da");
   }
@@ -646,14 +645,14 @@ double EinsumsUHF::compute_energy() {
   {
     timer_on("Form Db");
     einsums::tensor_algebra::einsum(
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::j},
+        einsums::Indices{einsums::index::i,
+                                         einsums::index::j},
         &Db_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::m},
+        einsums::Indices{einsums::index::i,
+                                         einsums::index::m},
         Coccb_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                         einsums::tensor_algebra::index::m},
+        einsums::Indices{einsums::index::j,
+                                         einsums::index::m},
         Coccb_);
     timer_off("Form Db");
   }
@@ -1123,26 +1122,26 @@ double EinsumsUHF::compute_energy() {
 #pragma omp task depend(in : *Temp1a) depend(out : *dRMS_tensa)
     {
       einsums::tensor_algebra::einsum(
-          0.0, einsums::tensor_algebra::Indices{}, dRMS_tensa,
+          0.0, einsums::Indices{}, dRMS_tensa,
           1.0 / (nso_ * nso_),
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
+          einsums::Indices{einsums::index::i,
+                                           einsums::index::j},
           *Temp1a,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
+          einsums::Indices{einsums::index::i,
+                                           einsums::index::j},
           *Temp1a);
     }
 
 #pragma omp task depend(in : *Temp1b) depend(out : *dRMS_tensb)
     {
       einsums::tensor_algebra::einsum(
-          0.0, einsums::tensor_algebra::Indices{}, dRMS_tensb,
+          0.0, einsums::Indices{}, dRMS_tensb,
           1.0 / (nso_ * nso_),
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
+          einsums::Indices{einsums::index::i,
+                                           einsums::index::j},
           *Temp1b,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
+          einsums::Indices{einsums::index::i,
+                                           einsums::index::j},
           *Temp1b);
     }
 
@@ -1249,14 +1248,14 @@ double EinsumsUHF::compute_energy() {
     {
       timer_on("Form Da");
       einsums::tensor_algebra::einsum(
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
+          einsums::Indices{einsums::index::i,
+                                           einsums::index::j},
           &Da_,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::m},
+          einsums::Indices{einsums::index::i,
+                                           einsums::index::m},
           Cocca_,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                           einsums::tensor_algebra::index::m},
+          einsums::Indices{einsums::index::j,
+                                           einsums::index::m},
           Cocca_);
       timer_off("Form Da");
     }
@@ -1265,14 +1264,14 @@ double EinsumsUHF::compute_energy() {
     {
       timer_on("Form Db");
       einsums::tensor_algebra::einsum(
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
+          einsums::Indices{einsums::index::i,
+                                           einsums::index::j},
           &Db_,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::m},
+          einsums::Indices{einsums::index::i,
+                                           einsums::index::m},
           Coccb_,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                           einsums::tensor_algebra::index::m},
+          einsums::Indices{einsums::index::j,
+                                           einsums::index::m},
           Coccb_);
       timer_off("Form Db");
     }
@@ -1320,21 +1319,21 @@ double EinsumsUHF::compute_energy() {
   einsums::Tensor<double, 0> spin;
 
   einsums::tensor_algebra::einsum(
-      0.0, einsums::tensor_algebra::Indices{}, &spin, 0.5,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
+      0.0, einsums::Indices{}, &spin, 0.5,
+      einsums::Indices{einsums::index::i,
+                                       einsums::index::j},
       Da_,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
+      einsums::Indices{einsums::index::i,
+                                       einsums::index::j},
       Da_);
 
   einsums::tensor_algebra::einsum(
-      1.0, einsums::tensor_algebra::Indices{}, &spin, -0.5,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
+      1.0, einsums::Indices{}, &spin, -0.5,
+      einsums::Indices{einsums::index::i,
+                                       einsums::index::j},
       Db_,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
+      einsums::Indices{einsums::index::i,
+                                       einsums::index::j},
       Db_);
 
   double s_squared = (double)spin * ((double)spin + 1);
@@ -1526,7 +1525,7 @@ void EinsumsUHF::print_header() {
   basisset_->print_by_level("outfile", print_);
 
   outfile->Printf("  ==> Functional <==\n\n");
-  func_->print("outfile", print_);
+  outfile->Printf("    %s\n\n", func_->name().c_str());
 }
 } // namespace einhf
 } // namespace psi
