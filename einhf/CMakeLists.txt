@@ -79,7 +79,7 @@ target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AN
 target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:HIP,Clang>:-O0 -gdwarf-4 -g3 -ggdb>>)
 target_compile_options(einhf BEFORE PUBLIC $<$<CONFIG:Debug>:$<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Og -g3>>)
 
-target_link_libraries(einhf PUBLIC Einsums::einsums)
+target_link_libraries(einhf PUBLIC Einsums::Einsums)
 target_include_directories(einhf PUBLIC ${Einsums_INCLUDE_DIRS})
 
 get_property(fmt_INCLUDE_DIRS TARGET fmt::fmt PROPERTY INTERFACE_INCLUDE_DIRECTORIES)

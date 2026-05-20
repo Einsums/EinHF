@@ -30,7 +30,8 @@
 
 #include "rhf.h"
 
-#include "einsums.hpp"
+#include "Einsums/Tensor.hpp"
+#include "Einsums/TensorAlgebra.hpp"
 
 #include "psi4/libfock/jk.h"
 #include "psi4/libfock/v.h"
@@ -47,9 +48,7 @@
 #include "psi4/libpsi4util/process.h"
 #include "psi4/libqt/qt.h"
 #include "psi4/psi4-dec.h"
-#include <LinearAlgebra.hpp>
-#include <_Common.hpp>
-#include <_Index.hpp>
+#include <Einsums/LinearAlgebra.hpp>
 #include <cmath>
 
 static std::string to_lower(const std::string &str) {
@@ -428,12 +427,12 @@ double EinsumsRHF::compute_electronic_energy() {
   temp += JKwK_;
 
   einsums::tensor_algebra::einsum(
-      0.0, einsums::tensor_algebra::Indices{}, &e_tens, 1.0,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
+      0.0, einsums::Indices{}, &e_tens, 1.0,
+      einsums::Indices{einsums::index::i,
+                                       einsums::index::j},
       D_,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
+      einsums::Indices{einsums::index::i,
+                                       einsums::index::j},
       temp);
 
   double out = (double)e_tens;
@@ -597,14 +596,14 @@ double EinsumsRHF::compute_energy() {
 
   timer_on("Form D");
   einsums::tensor_algebra::einsum(
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::j},
+      einsums::Indices{einsums::index::i,
+                                       einsums::index::j},
       &D_,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                       einsums::tensor_algebra::index::m},
+      einsums::Indices{einsums::index::i,
+                                       einsums::index::m},
       Cocc_,
-      einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                       einsums::tensor_algebra::index::m},
+      einsums::Indices{einsums::index::j,
+                                       einsums::index::m},
       Cocc_);
   timer_off("Form D");
 
@@ -856,13 +855,13 @@ double EinsumsRHF::compute_energy() {
       }
 
       einsums::tensor_algebra::einsum(
-          0.0, einsums::tensor_algebra::Indices{}, dRMS_tens,
+          0.0, einsums::Indices{}, dRMS_tens,
           1.0 / (nso_ * nso_),
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
+          einsums::Indices{einsums::index::i,
+                                           einsums::index::j},
           *Temp1,
-          einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                           einsums::tensor_algebra::index::j},
+          einsums::Indices{einsums::index::i,
+                                           einsums::index::j},
           *Temp1);
 
 // Compute the energy
@@ -897,14 +896,14 @@ double EinsumsRHF::compute_energy() {
 
     timer_on("Form D");
     einsums::tensor_algebra::einsum(
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::j},
+        einsums::Indices{einsums::index::i,
+                                         einsums::index::j},
         &D_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::i,
-                                         einsums::tensor_algebra::index::m},
+        einsums::Indices{einsums::index::i,
+                                         einsums::index::m},
         Cocc_,
-        einsums::tensor_algebra::Indices{einsums::tensor_algebra::index::j,
-                                         einsums::tensor_algebra::index::m},
+        einsums::Indices{einsums::index::j,
+                                         einsums::index::m},
         Cocc_);
     timer_off("Form D");
 
@@ -1086,7 +1085,7 @@ void EinsumsRHF::print_header() {
   basisset_->print_by_level("outfile", print_);
 
   outfile->Printf("  ==> Functional <==\n\n");
-  func_->print("outfile", print_);
+  outfile->Printf("    %s\n\n", func_->name().c_str());
 }
 } // namespace einhf
 } // namespace psi

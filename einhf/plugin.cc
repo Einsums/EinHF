@@ -30,6 +30,7 @@
 
 #include "rhf.h"
 #include "uhf.h"
+#include "Einsums/Runtime.hpp"
 #include <memory>
 
 #ifdef __HIP__
@@ -119,7 +120,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
   }
 
   psi::outfile->Printf("Initializing Einsums.\n");
-  einsums::initialize();
+  einsums::initialize(0, (char const *const *)nullptr);
   if ((to_lower(options.get_str("REFERENCE")) == "rhf" ||
        to_lower(options.get_str("REFERENCE")) == "rks") &&
       to_lower(options.get_str("COMPUTE")) == "cpu") {
@@ -225,7 +226,7 @@ extern "C" PSI_API SharedWavefunction einhf(SharedWavefunction ref_wfn,
           "Can not handle MP2 with the given reference or compute type!");
     }
   } else if (to_lower(options.get_str("METHOD")) == "scf") {
-    einsums::finalize(false);
+    einsums::finalize();
     return outwfn;
   } else {
     throw PSIEXCEPTION("Unrecognized method" + options.get_str("METHOD"));
